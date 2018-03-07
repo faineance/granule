@@ -59,12 +59,19 @@ instance Pretty (Neg Constraint) where
       "Trying to prove that " ++ pretty c1 ++ " /= " ++ pretty c2
 
     pretty (Neg (Eq _ c1 c2 _)) =
-      pretty c1 ++ " /= " ++ pretty c2
+      "Trying to prove that " ++ pretty c1 ++ " == " ++ pretty c2
 
     pretty (Neg (ApproximatedBy _ c1 c2 (CConstr k))) =
-      case internalName k of
-        "Nat=" -> pretty c1 ++ " /= " ++ pretty c2
-        _ -> pretty c1 ++ " > " ++ pretty c2
+      "Trying to prove that " ++ case internalName k of
+        "Nat=" ->
+          removeTrailingEq (pretty c1) ++ " == " ++ removeTrailingEq (pretty c2)
+            where
+              removeTrailingEq s =
+                case reverse s of
+                  '=':cs -> reverse cs
+                  _      -> s
+
+        _ -> pretty c1 ++ " approximated by " ++ pretty c2
 
 instance Pretty [Constraint] where
     pretty constr =

@@ -63,9 +63,8 @@ data CheckerState = CS
             -- variables that appear in constraints)
             , kVarContext   :: Ctxt Kind
 
-            -- Guard contexts (all the guards in scope)
-            -- which get promoted by branch promotions
-            , guardContexts :: [Ctxt Assumption]
+            -- Any implicit flow variables in scope
+            , implicitContext :: Ctxt Assumption
 
             -- Data type information
             , typeConstructors :: Ctxt Kind
@@ -83,7 +82,7 @@ initState = CS { uniqueVarId = 0
                , predicateStack = []
                , tyVarContext = emptyCtxt
                , kVarContext = emptyCtxt
-               , guardContexts = []
+               , implicitContext = []
                , typeConstructors = Primitives.typeLevelConstructors
                , dataConstructors = Primitives.dataConstructors
                , deriv = Nothing
@@ -111,23 +110,6 @@ localChecking k = do
         put localState
         MaybeT $ return out
   return (out, reified)
-
-pushGuardContext :: Ctxt Assumption -> MaybeT Checker ()
-pushGuardContext ctxt = do
-  modify (\state ->
-    state { guardContexts = ctxt : guardContexts state })
-
-popGuardContext :: MaybeT Checker (Ctxt Assumption)
-popGuardContext = do
-  state <- get
-  let (c:cs) = guardContexts state
-  put (state { guardContexts = cs })
-  return c
-
-allGuardContexts :: MaybeT Checker (Ctxt Assumption)
-allGuardContexts = do
-  state <- get
-  return $ concat (guardContexts state)
 
 -- | Helper for creating a few (existential) coeffect variable of a particular
 --   coeffect type.

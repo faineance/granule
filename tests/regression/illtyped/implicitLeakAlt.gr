@@ -7,3 +7,9 @@ leak' x =
       case x of
         |True|  ->  |True|;
         |False| ->  |False|
+
+related : Int |2| -> Int |10|
+related x =
+   case x of
+     |0| -> |0|;
+     |1| -> |1|

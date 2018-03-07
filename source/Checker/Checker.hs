@@ -221,24 +221,15 @@ checkExpr defs gam pol _ (Box demand tau) (Val s (Promote e)) = do
     gamF    <- discToFreshVarsIn s vars gam demand
     (gam', subst) <- checkExpr defs gamF pol False tau e
 
-    guardGam <- allGuardContexts
-    guardGam' <- filterM isLevelKinded guardGam
+    state <- get
+    let gam'' = multAll (vars ++ map fst (implicitContext state)) demand gam'
 
-    let gam'' = multAll (vars ++ map fst guardGam') demand (gam' ++ guardGam')
     return (gam'', subst)
-  where
-    isLevelKinded (_, as) = do
-        ty <- inferCoeffectTypeAssumption s as
-        return $ case ty of
-          Nothing -> False
-          Just (CConstr c) | internalName c == "Level" -> True
-                           | otherwise                 -> False
 
 -- Dependent pattern-matching case (only at the top level)
 checkExpr defs gam pol True tau (Case s guardExpr cases) = do
   -- Synthesise the type of the guardExpr
   (guardTy, guardGam) <- synthExpr defs gam pol guardExpr
-  pushGuardContext guardGam
 
   -- Check each of the branches
   branchCtxtsAndSubst <-
@@ -254,7 +245,23 @@ checkExpr defs gam pol True tau (Case s guardExpr cases) = do
       let tau' = substType subst tau
       (specialisedGam, unspecialisedGam) <- substCtxt subst gam
 
-      let checkGam = specialisedGam ++ unspecialisedGam ++ patternGam
+      -- If we are matching on a box pattern, then crete an implicit
+      -- flows variable in scope
+      implicitGam <-
+        case (guardTy, pat_i) of
+         (Box c t, PBox _ _) -> do
+            k <- inferCoeffectType s c
+            if controlFlowTracked k then do
+               patternImplicitVar <- freshVar "g"
+               let implicit = (mkId patternImplicitVar, Discharged t (COne k))
+               modify (\st -> st { implicitContext = implicit : implicitContext st })
+               return [implicit]
+            else
+                return []
+         _ -> return []
+
+
+      let checkGam = specialisedGam ++ unspecialisedGam ++ patternGam ++ implicitGam
       (localGam, subst') <- checkExpr defs checkGam pol False tau' e_i
 
       approximatedByCtxt s localGam checkGam
@@ -278,7 +285,6 @@ checkExpr defs gam pol True tau (Case s guardExpr cases) = do
         -- Anything that was bound in the pattern but not used correctly
         xs -> illLinearityMismatch s xs
 
-  popGuardContext
   -- Find the upper-bound contexts
   let (branchCtxts, substs) = unzip branchCtxtsAndSubst
   branchesGam <- fold1M (joinCtxts s) branchCtxts

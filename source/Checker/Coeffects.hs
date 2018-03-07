@@ -25,6 +25,12 @@ flattenable (CConstr k) =
     _ -> Nothing
 flattenable _ = Nothing
 
+controlFlowTracked :: CKind -> Bool
+controlFlowTracked (CConstr k) =
+  case internalName k of
+    "Level" -> True
+    _       -> False
+
 inferCoeffectTypeAssumption :: (?globals :: Globals)
                             => Span -> Assumption -> MaybeT Checker (Maybe CKind)
 inferCoeffectTypeAssumption _ (Linear _) = return Nothing

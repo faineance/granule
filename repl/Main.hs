@@ -169,7 +169,7 @@ buildForEval :: [Id] -> M.Map String (Def, [String]) -> [Def]
 buildForEval [] _ = []
 buildForEval (x:xs) m = buildAST (sourceName x) m ++ buildForEval xs m
 
-synType :: (?globals::Globals) => Expr -> Ctxt TypeScheme -> Mo.CheckerState -> IO (Maybe (Type, Ctxt Mo.Assumption))
+synType :: (?globals::Globals) => Expr -> Ctxt Type -> Mo.CheckerState -> IO (Maybe (Type, Ctxt Mo.Assumption))
 synType exp [] cs = liftIO $ Mo.evalChecker cs $ runMaybeT $ synthExpr empty empty Positive exp
 synType exp cts cs = liftIO $ Mo.evalChecker cs $ runMaybeT $ synthExpr cts empty Positive exp
 
@@ -190,28 +190,28 @@ buildCheckerState dd = do
     somethine <- checkDataDecls
     return ()
 
-buildCtxtTS :: (?globals::Globals) => [Def] -> Ctxt TypeScheme
+buildCtxtTS :: (?globals::Globals) => [Def] -> Ctxt Type
 buildCtxtTS [] = []
 buildCtxtTS ((x@(Def _ id _ _ ts)):ast) =  (id,ts) : buildCtxtTS ast
 
-buildCtxtTSDD :: (?globals::Globals) => [DataDecl] -> Ctxt TypeScheme
+buildCtxtTSDD :: (?globals::Globals) => [DataDecl] -> Ctxt Type
 buildCtxtTSDD [] = []
 buildCtxtTSDD ((DataDecl _ _ _ _ dc) : dd) = makeCtxt dc ++ buildCtxtTSDD dd
                                               where
-                                                makeCtxt :: [DataConstr] -> Ctxt TypeScheme
+                                                makeCtxt :: [DataConstr] -> Ctxt Type
                                                 makeCtxt [] = []
                                                 makeCtxt datcon = buildCtxtTSDDhelper datcon
 
-buildCtxtTSDDhelper :: [DataConstr] -> Ctxt TypeScheme
+buildCtxtTSDDhelper :: [DataConstr] -> Ctxt Type
 buildCtxtTSDDhelper [] = []
 buildCtxtTSDDhelper (dc@(DataConstrG _ id ts):dct) = (id,ts) : buildCtxtTSDDhelper dct
 buildCtxtTSDDhelper (dc@(DataConstrA _ _ _):dct) = buildCtxtTSDDhelper dct
 
 
-buildTypeScheme :: (?globals::Globals) => Type -> TypeScheme
-buildTypeScheme ty = Forall ((0,0),(0,0)) [] ty
+buildType :: (?globals::Globals) => Type -> Type
+buildType ty = Forall [] ty
 
-buildDef ::Int -> TypeScheme -> Expr -> Def
+buildDef ::Int -> Type -> Expr -> Def
 buildDef rfv ts ex = Def ((0,0),(0,0)) (mkId (" repl"++(show rfv))) ex [] ts
 
 
@@ -243,7 +243,7 @@ handleCMD s =
       case pexp of
         Right ast -> liftIO $ putStrLn (show ast)
         Left e -> do
-          liftIO $ putStrLn "Input not an expression, checking for TypeScheme"
+          liftIO $ putStrLn "Input not an expression, checking for Type"
           pts <- liftIO' $ try $ tscheme $ scanTokens str
           case pts of
             Right ts -> liftIO $ putStrLn (show ts)
@@ -350,7 +350,7 @@ handleCMD s =
                     _ -> do
                         let ast = buildForEval fv m
                         typer <- synTypeBuilder exp ast adt
-                        let ndef = buildDef fvg (buildTypeScheme typer) exp
+                        let ndef = buildDef fvg (buildType typer) exp
                         put ((fvg+1),rp,adt,fp,m)
                         checked <- liftIO' $ check (AST adt (ast++(ndef:[])))
                         case checked of
@@ -373,7 +373,7 @@ helpMenu = unlines
       ,":type <term>              (:t)  Display the type of a term in the context"
       ,":show <term>              (:s)  Display Def of term in state"
       ,":parse <expression/type>  (:p)  Run Granule parser on a given expression and display Expr."
-      ,"                                If input is not an expression will try to run against TypeScheme parser and display TypeScheme"
+      ,"                                If input is not an expression will try to run against Type parser and display Type"
       ,":lexer <string>           (:x)  Run Granule lexer on given string and display [Token]"
       ,":debug <filepath>         (:d)  Run Granule debugger and display output while loading a file"
       ,":dump                     ()    Display the context"

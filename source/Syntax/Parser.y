@@ -16,7 +16,7 @@ import System.Exit (die)
 
 %name defs Defs
 %name expr Expr
-%name tscheme TypeScheme
+%name tscheme Type
 %tokentype { Token }
 %error { parseError }
 %monad { IO }
@@ -103,8 +103,8 @@ DataDecl :: { DataDecl }
   : data CONSTR TyVars KindAnn where DataConstrs
       { DataDecl (getPos $1, snd $ getSpan (last $6)) (mkId $ constrString $2) $3 $4 $6 }
 
-Sig ::  { (Id, TypeScheme, Pos) }
-  : VAR ':' TypeScheme        { (mkId $ symString $1, $3, getPos $1) }
+Sig ::  { (Id, Type, Pos) }
+  : VAR ':' Type        { (mkId $ symString $1, $3, getPos $1) }
 
 Binding :: { (Id, Expr, [Pattern]) }
   : VAR '=' Expr              { (mkId $ symString $1, $3, []) }
@@ -115,7 +115,8 @@ DataConstrs :: { [DataConstr] }
   | {- empty -}               { [] }
 
 DataConstr :: { DataConstr }
-  : CONSTR ':' TypeScheme     { DataConstrG (getPos $1, getEnd $3) (mkId $ constrString $1) $3 }
+-- Need to add spans to types
+  : CONSTR ':' Type     { DataConstrG (getPos $1, getPos $2) (mkId $ constrString $1) $3 }
   | CONSTR TyParams           { DataConstrA (getPosToSpan $1) (mkId $ constrString $1) $2 }
 
 DataConstrNext :: { [DataConstr] }
@@ -154,11 +155,6 @@ PAtom :: { Pattern }
   | '(' Pat ',' Pat ')'       { PConstr (getPosToSpan $1) (mkId ",") [$2, $4] }
 
 
-TypeScheme :: { TypeScheme }
-  : Type                              { Forall nullSpan [] $1 }
-  | forall '(' VarSigs ')' '.' Type   { Forall (getPos $1, getPos $5) $3 $6 }
-  | forall VarSigs '.' Type           { Forall (getPos $1, getPos $3) $2 $4 }
-
 VarSigs :: { [(Id, Kind)] }
   : VarSig ',' VarSigs        { $1 : $3 }
   | VarSig                    { [$1] }
@@ -178,6 +174,8 @@ Type :: { Type }
   | Type '->' Type            { FunTy $1 $3 }
   | TyAtom '|' Coeffect '|'   { Box $3 $1 }
   | TyAtom '<' Effect '>'     { Diamond $3 $1 }
+  | forall '(' VarSigs ')' '.' Type  { Forall $3 $6 }
+  | forall VarSigs '.' Type          { Forall $2 $4 }
 
 TyJuxt :: { Type }
   : TyJuxt '`' TyAtom '`'     { TyApp $3 $1 }

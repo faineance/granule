@@ -22,10 +22,10 @@ import Syntax.Pretty
 import Syntax.Expr
 
 data Quantifier =
-    -- | Universally quantification, e.g. polymorphic
+    -- | Universally quantified (polymorphic)
     ForallQ
 
-    -- | Instantiations of universally quantified variables
+    -- | Skolem variables (instances of universally quantified variables)
     | InstanceQ
 
     -- | Univeral, but bound in a dependent pattern match
@@ -34,7 +34,7 @@ data Quantifier =
 
 instance Pretty Quantifier where
   pretty ForallQ   = "forall"
-  pretty InstanceQ = "exists"
+  pretty InstanceQ = "skolem"
   pretty BoundQ    = "pi"
 
 stripQuantifiers :: Ctxt (a, Quantifier) -> Ctxt a

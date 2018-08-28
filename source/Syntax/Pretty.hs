@@ -78,13 +78,6 @@ instance Pretty Kind where
     pretty (KVar v)       = pretty v
     pretty (KPromote t)   = "↑" ++ pretty t
 
-instance Pretty TypeScheme where
-    pretty (Forall _ [] t) = pretty t
-    pretty (Forall _ cvs t) =
-        "forall " ++ intercalate ", " (map prettyKindSignatures cvs) ++ ". " ++ pretty t
-      where
-       prettyKindSignatures (var, kind) = pretty var ++ " : " ++ pretty kind
-
 instance Pretty Type where
     pretty (TyCon s)      =  pretty s
     pretty (FunTy f@(FunTy _ _) t2)  = "(" ++ pretty f ++ ") -> " ++ pretty t2
@@ -95,6 +88,11 @@ instance Pretty Type where
     pretty (TyApp t1 t2)  = pretty t1 ++ " " ++ pretty t2
     pretty (TyInt n)      = show n
     pretty (TyInfix op t1 t2) = "(" ++ pretty t1 ++ " " ++ op ++ " " ++  pretty t2 ++ ")"
+    pretty (Forall [] t) = pretty t
+    pretty (Forall cvs t) =
+        "forall " ++ intercalate ", " (map prettyKindSignatures cvs) ++ ". " ++ pretty t
+      where
+       prettyKindSignatures (var, kind) = pretty var ++ " : " ++ pretty kind
 
 instance Pretty AST where
     pretty (AST dataDecls defs) = pretty' dataDecls ++ "\n\n" ++ pretty' defs

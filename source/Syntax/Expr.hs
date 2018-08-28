@@ -7,7 +7,7 @@
 {-# LANGUAGE InstanceSigs #-}
 
 module Syntax.Expr
-  (AST(..), Value(..), Expr(..), Type(..), TypeScheme(..), Nat,
+  (AST(..), Value(..), Expr(..), Type(..), Nat,
   letBox, valExpr,
   Def(..), DataDecl(..), Pattern(..), Coeffect(..),
   NatModifier(..), Effect, Kind(..), DataConstr(..), Cardinality,
@@ -16,7 +16,6 @@ module Syntax.Expr
   arity, freeVars, subst, freshen, Freshener, freshenAST, runFreshener,
   normalise,
   nullSpan, getSpan, getEnd, getStart, Pos, Span,
-  emptyTypeScheme,
   typeFoldM, TypeFold(..), resultType,
   mFunTy, mTyCon, mBox, mDiamond, mTyVar, mTyApp,
   mTyInt, mTyInfix,
@@ -213,14 +212,22 @@ instance Term Type where
     , tfTyApp   = \x y -> return $ x ++ y
     , tfTyInt   = \_ -> return []
     , tfTyInfix = \_ y z -> return $ y ++ z
+    , tfForall = \bs x -> return $ x \\ (map fst bs)
     }
 
 instance Freshenable Type where
   freshen =
     typeFoldM (baseTypeFold { tfTyApp = rewriteTyApp,
                               tfTyVar = freshenTyVar,
-                              tfBox = freshenTyBox })
+                              tfBox = freshenTyBox,
+                              tfForall = freshenForall })
     where
+
+      freshenForall binds ty = do
+            binds' <- mapM (\(v, k) -> do { v' <- freshVar Type v; return (v', k) }) binds
+            ty' <- freshen ty
+            return $ Forall binds' ty'
+
       -- Rewrite type aliases of Box
       rewriteTyApp t1@(TyCon ident) t2
         | internalName ident == "Box" || internalName ident == "◻" =
@@ -322,6 +329,8 @@ instance Term Value where
     freeVars (StringLiteral _) = []
     freeVars (Handle{}) = []
     freeVars (Chan{})   = []
+    freeVars (Primitive{}) = []
+    freeVars (PrimitiveClosure{}) = []
 
 instance Substitutable Value where
     subst es v (Abs w t e)      = Val nullSpan $ Abs w t (subst es v e)
@@ -370,6 +379,10 @@ instance Freshenable Value where
     freshen v@(Constr _ _) = return v
     freshen v@CharLiteral{} = return v
     freshen v@StringLiteral{} = return v
+    freshen v@Primitive{} = return v
+    freshen v@PrimitiveClosure{} = return v
+    freshen v@Handle{} = return v
+    freshen v@Chan{} = return v
 
 instance Term Expr where
     freeVars (App _ e1 e2)            = freeVars e1 ++ freeVars e2
@@ -426,7 +439,7 @@ instance Freshenable Expr where
 
 data AST = AST [DataDecl] [Def] deriving Show
 
-data Def = Def Span Id Expr [Pattern] TypeScheme
+data Def = Def Span Id Expr [Pattern] Type
   deriving (Generic, Show)
 
 deriving instance (Eq (Value -> IO Value)
@@ -440,7 +453,7 @@ data DataDecl = DataDecl Span Id [(Id,Kind)] (Maybe Kind) [DataConstr]
 instance FirstParameter DataDecl Span
 
 data DataConstr
-  = DataConstrG Span Id TypeScheme
+  = DataConstrG Span Id Type
   | DataConstrA Span Id [Type]
   deriving (Eq, Show, Generic)
 
@@ -479,32 +492,18 @@ instance Term Def where
 
 ----------- Types
 
-data TypeScheme = Forall Span [(Id, Kind)] Type -- [(Id, Kind)] are the binders
-    deriving (Eq, Show, Generic)
-
-emptyTypeScheme :: Type -> TypeScheme
-emptyTypeScheme = Forall nullSpan []
-
-instance FirstParameter TypeScheme Span
-
-instance Freshenable TypeScheme where
-  freshen :: TypeScheme -> Freshener TypeScheme
-  freshen (Forall s binds ty) = do
-        binds' <- mapM (\(v, k) -> do { v' <- freshVar Type v; return (v', k) }) binds
-        ty' <- freshen ty
-        return $ Forall s binds' ty'
-
 {-| Types.
 Example: `List n Int` is `TyApp (TyApp (TyCon "List") (TyVar "n")) (TyCon "Int") :: Type`
 -}
-data Type = FunTy Type Type           -- ^ Function type
-          | TyCon Id                  -- ^ Type constructor
-          | Box Coeffect Type         -- ^ Coeffect type
-          | Diamond Effect Type       -- ^ Effect type
-          | TyVar Id                  -- ^ Type variable
-          | TyApp Type Type           -- ^ Type application
-          | TyInt Int                 -- ^ Type-level Int
-          | TyInfix Operator Type Type  -- ^ Infix type operator
+data Type = FunTy Type Type              -- ^ Function type
+          | TyCon Id                     -- ^ Type constructor
+          | Box Coeffect Type            -- ^ Coeffect type
+          | Diamond Effect Type          -- ^ Effect type
+          | TyVar Id                     -- ^ Type variable
+          | TyApp Type Type              -- ^ Type application
+          | TyInt Int                    -- ^ Type-level Int
+          | TyInfix Operator Type Type   -- ^ Infix type operator
+          | Forall (Ctxt Kind) Type -- ^ Universal quantification
     deriving (Eq, Ord, Show)
 
 -- Smart constructors for types
@@ -537,10 +536,12 @@ mTyInt :: Monad m => Int -> m Type
 mTyInt       = return . TyInt
 mTyInfix :: Monad m => Operator -> Type -> Type -> m Type
 mTyInfix op x y  = return (TyInfix op x y)
+mTyForall :: Monad m => Ctxt Kind -> Type -> m Type
+mTyForall bs t = return (Forall bs t)
 
 baseTypeFold :: Monad m => TypeFold m Type
 baseTypeFold =
-  TypeFold mFunTy mTyCon mBox mDiamond mTyVar mTyApp mTyInt mTyInfix
+  TypeFold mFunTy mTyCon mBox mDiamond mTyVar mTyApp mTyInt mTyInfix mTyForall
 
 data TypeFold m a = TypeFold
   { tfFunTy   :: a -> a        -> m a
@@ -550,7 +551,8 @@ data TypeFold m a = TypeFold
   , tfTyVar   :: Id            -> m a
   , tfTyApp   :: a -> a        -> m a
   , tfTyInt   :: Int           -> m a
-  , tfTyInfix :: Operator -> a -> a -> m a }
+  , tfTyInfix :: Operator -> a -> a -> m a
+  , tfForall  :: Ctxt Kind -> a -> m a }
 
 -- | Monadic fold on a `Type` value
 typeFoldM :: Monad m => TypeFold m a -> Type -> m a
@@ -577,6 +579,9 @@ typeFoldM algebra = go
      t1' <- go t1
      t2' <- go t2
      (tfTyInfix algebra) op t1' t2'
+   go (Forall bs t) = do
+     t' <- go t
+     (tfForall algebra) bs t'
 
 arity :: Type -> Nat
 arity (FunTy _ t) = 1 + arity t
@@ -587,7 +592,6 @@ arity _           = 0
 resultType :: Type -> Type
 resultType (FunTy _ t) = resultType t
 resultType t = t
-
 
 data Kind = KType
           | KCoeffect

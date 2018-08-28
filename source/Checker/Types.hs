@@ -18,23 +18,23 @@ import Syntax.Pretty
 import Utils
 
 lEqualTypesWithPolarity :: (?globals :: Globals)
-  => Span -> SpecIndicator -> TypeScheme -> TypeScheme -> MaybeT Checker (Bool, TypeScheme, Substitution)
+  => Span -> SpecIndicator -> Type -> Type -> MaybeT Checker (Bool, Type, Substitution)
 lEqualTypesWithPolarity s pol = equalTypesRelatedCoeffectsAndUnify s ApproximatedBy False pol
 
 equalTypesWithPolarity :: (?globals :: Globals)
-  => Span -> SpecIndicator -> TypeScheme -> TypeScheme -> MaybeT Checker (Bool, TypeScheme, Substitution)
+  => Span -> SpecIndicator -> Type -> Type -> MaybeT Checker (Bool, Type, Substitution)
 equalTypesWithPolarity s pol = equalTypesRelatedCoeffectsAndUnify s Eq False pol
 
 lEqualTypes :: (?globals :: Globals)
-  => Span -> TypeScheme -> TypeScheme -> MaybeT Checker (Bool, TypeScheme, Substitution)
+  => Span -> Type -> Type -> MaybeT Checker (Bool, Type, Substitution)
 lEqualTypes s = equalTypesRelatedCoeffectsAndUnify s ApproximatedBy False SndIsSpec
 
 equalTypes :: (?globals :: Globals)
-  => Span -> TypeScheme -> TypeScheme -> MaybeT Checker (Bool, TypeScheme, Substitution)
+  => Span -> Type -> Type -> MaybeT Checker (Bool, Type, Substitution)
 equalTypes s = equalTypesRelatedCoeffectsAndUnify s Eq False SndIsSpec
 
 equalTypesWithUniversalSpecialisation :: (?globals :: Globals)
-  => Span -> TypeScheme -> TypeScheme -> MaybeT Checker (Bool, TypeScheme, Substitution)
+  => Span -> Type -> Type -> MaybeT Checker (Bool, Type, Substitution)
 equalTypesWithUniversalSpecialisation s = equalTypesRelatedCoeffectsAndUnify s Eq True SndIsSpec
 
 {- | Check whether two types are equal, and at the same time
@@ -54,16 +54,16 @@ equalTypesRelatedCoeffectsAndUnify :: (?globals :: Globals )
   -- Starting spec indication
   -> SpecIndicator
   -- Left type (usually the inferred)
-  -> TypeScheme
+  -> Type
   -- Right type (usually the specified)
-  -> TypeScheme
+  -> Type
   -- Result is a effectful, producing:
   --    * a boolean of the equality
   --    * the most specialised type (after the unifier is applied)
   --    * the unifier
-  -> MaybeT Checker (Bool, TypeScheme, Substitution)
+  -> MaybeT Checker (Bool, Type, Substitution)
 equalTypesRelatedCoeffectsAndUnify
-  s rel allowUniversalSpecialisation spec ts1@(Forall _ bs1 t1) ts2@(Forall _ bs2 t2) = do
+  s rel allowUniversalSpecialisation spec ts1@(Forall bs1 t1) ts2@(Forall bs2 t2) = do
 
    (eq, unif) <- equalTypesRelatedCoeffects s rel allowUniversalSpecialisation t1 t2 bs1 bs2 spec
    if eq
@@ -377,12 +377,12 @@ sessionInequality :: (?globals :: Globals)
     => Span -> Type -> Type -> MaybeT Checker (Bool, Substitution)
 sessionInequality s (TyApp (TyCon c) t) (TyApp (TyCon c') t')
   | internalName c == "Send" && internalName c' == "Send" = do
-  (g, _, u) <- equalTypes s (emptyTypeScheme t) (emptyTypeScheme t')
+  (g, _, u) <- equalTypes s t t'
   return (g, u)
 
 sessionInequality s (TyApp (TyCon c) t) (TyApp (TyCon c') t')
   | internalName c == "Recv" && internalName c' == "Recv" = do
-  (g, _, u) <- equalTypes s (emptyTypeScheme t) (emptyTypeScheme t')
+  (g, _, u) <- equalTypes s t t'
   return (g, u)
 
 sessionInequality s (TyCon c) (TyCon c')
@@ -485,10 +485,3 @@ joinTypes s t1 t2 = do
   halt $ GenericError (Just s)
     $ "Type '" ++ pretty t1 ++ "' and '"
                ++ pretty t2 ++ "' have no upper bound"
-
--- Take a type scheme an a transformer on types (e.g. a (partially
---  applied) type constructor) and apply the transformer in the scope
--- of the type schemes bindings
-extrudeTypeScheme :: (Type -> Type) -> TypeScheme -> TypeScheme
-extrudeTypeScheme tr (Forall s bindings t) =
-  Forall s bindings (tr t)

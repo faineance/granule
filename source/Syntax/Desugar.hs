@@ -22,7 +22,7 @@ import Control.Monad.State.Strict
    binding. -}
 desugar :: Def -> Def
 -- desugar adt@ADT{} = adt
-desugar (Def s var expr pats tys@(Forall _ _ ty)) =
+desugar (Def s var expr pats tys@(Forall _ ty)) =
   Def s var (evalState (typeDirectedDesugar pats ty expr) (0 :: Int)) [] tys
   where
     typeDirectedDesugar [] _ e = return e

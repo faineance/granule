@@ -31,7 +31,7 @@ promoteTypeToKind t = KPromote t
 
 -- Currently we expect that a type scheme has kind KType
 kindCheckDef :: (?globals :: Globals) => Def -> MaybeT Checker ()
-kindCheckDef (Def s _ _ _ (Forall _ quantifiedVariables ty)) = do
+kindCheckDef (Def s _ _ _ (Forall quantifiedVariables ty)) = do
   -- Set up the quantified variables in the type variable context
   modify (\st -> st { tyVarContext = map (\(n, c) -> (n, (c, ForallQ))) quantifiedVariables})
 
@@ -47,7 +47,7 @@ inferKindOfType s t = do
 
 inferKindOfType' :: (?globals :: Globals) => Span -> Ctxt Kind -> Type -> MaybeT Checker Kind
 inferKindOfType' s quantifiedVariables t =
-    typeFoldM (TypeFold kFun kCon kBox kDiamond kVar kApp kInt kInfix) t
+    typeFoldM (TypeFold kFun kCon kBox kDiamond kVar kApp kInt kInfix kForall) t
   where
     kFun (KConstr c) (KConstr c') | internalName c == internalName c' = return $ KConstr c
     kFun KType KType = return KType
@@ -89,6 +89,9 @@ inferKindOfType' s quantifiedVariables t =
                else illKindedNEq s k2' k2
           else illKindedNEq s k1' k1
        Nothing   -> halt $ UnboundVariableError (Just s) (pretty op ++ " operator.")
+
+    kForall bs k = do
+      return k
 
 joinKind :: Kind -> Kind -> Maybe Kind
 joinKind k1 k2 | k1 == k2 = Just k1

@@ -16,7 +16,7 @@ import Checker.Predicates
 import qualified Checker.Primitives as Primitives
 import Context
 import Syntax.Expr (Id, Span, Type(..), Kind(..), Coeffect, Pattern,
-                    TypeScheme(..), Cardinality, mkId, internalName, Nat)
+                    Type(..), Cardinality, mkId, internalName, Nat)
 import Syntax.Pretty
 import Utils
 
@@ -35,8 +35,8 @@ runChecker initialState =
 
 -- Types or discharged coeffects
 data Assumption =
-    Linear TypeScheme
-  | Discharged TypeScheme Coeffect
+    Linear Type
+  | Discharged Type Coeffect
     deriving (Eq, Show)
 
 instance Pretty Assumption where
@@ -66,7 +66,7 @@ data CheckerState = CS
 
             -- Data type information
             , typeConstructors :: Ctxt (Kind, Cardinality) -- the kind of the and number of data constructors
-            , dataConstructors :: Ctxt TypeScheme
+            , dataConstructors :: Ctxt Type
 
             -- LaTeX derivation
             , deriv      :: Maybe Derivation
@@ -287,7 +287,7 @@ refutablePattern sp p =
 halt :: (?globals :: Globals) => TypeError -> MaybeT Checker a
 halt err = liftIO (printErr err) >> MaybeT (return Nothing)
 
-typeClashForVariable :: (?globals :: Globals) => Span -> Id -> TypeScheme -> TypeScheme -> MaybeT Checker a
+typeClashForVariable :: (?globals :: Globals) => Span -> Id -> Type -> Type -> MaybeT Checker a
 typeClashForVariable s var t1 t2 =
     halt $ GenericError (Just s)
              $ "Variable " ++ pretty var ++ " is being used at two conflicting types "

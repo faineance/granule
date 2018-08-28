@@ -4,6 +4,9 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE KindSignatures #-}
 
 module Checker.Checker where
 
@@ -84,7 +87,7 @@ checkDataCon :: (?globals :: Globals )
   -> Ctxt Kind -- ^ The type variables
   -> DataConstr -- ^ The data constructor to check
   -> MaybeT Checker () -- ^ Return @Just ()@ on success, @Nothing@ on failure
-checkDataCon tName kind tyVarsT (DataConstrG sp dName tySch@(Forall _ tyVarsD ty)) = do
+checkDataCon tName kind tyVarsT (DataConstrG sp dName tySch@(Forall tyVarsD ty)) = do
     case intersectCtxts tyVarsT tyVarsD of
       [] -> do -- no clashes
         let tyVars = tyVarsT ++ tyVarsD
@@ -93,10 +96,10 @@ checkDataCon tName kind tyVarsT (DataConstrG sp dName tySch@(Forall _ tyVarsD ty
           KType -> do
             check ty
             st <- get
-            case extend (dataConstructors st) dName (Forall sp tyVars ty) of
+            case extend (dataConstructors st) dName (Forall tyVars ty) of
               Some ds -> put st { dataConstructors = ds }
-              None _ -> halt $ NameClashError (Just sp) $ "Data constructor `" ++ pretty dName ++ "` already defined."
-          _     -> illKindedNEq sp KType kind
+              None _ -> halt $ NameClashError (Just nullSpan) $ "Data constructor `" ++ pretty dName ++ "` already defined."
+          _     -> illKindedNEq nullSpan KType kind
       vs -> halt $ NameClashError (Just sp) $ mconcat
                     ["Type variable(s) ", intercalate ", " $ map (\(i,_) -> "`" ++ pretty i ++ "`") vs
                     ," in data constructor `", pretty dName
@@ -118,25 +121,25 @@ checkDataCon tName _ tyVars (DataConstrA sp dName params) = do
       Some ds -> put st { dataConstructors = ds }
       None _ -> halt $ NameClashError (Just sp) $ "Data constructor `" ++ pretty dName ++ "` already defined."
   where
-    tySch = Forall sp tyVars ty
+    tySch = Forall tyVars ty
     ty = foldr FunTy (returnTy (TyCon tName) tyVars) params
     returnTy t [] = t
     returnTy t (v:vs) = returnTy (TyApp t ((TyVar . fst) v)) vs
 
 dischargePoly (v, ty) = do
   kvar <- freshVar "topk"
-  let kind = KVar kvar
-  c <- freshCoeffectVarWithBinding "top" kind ForallQ
-  return $ (v, Discharged ty c)
+  let kind = TyVar (mkId kvar)
+  c <- freshCoeffectVarWithBinding (mkId "top") kind ForallQ
+  return $ (v, Discharged ty $ CVar c)
 
 checkDef :: (?globals :: Globals )
-         => Ctxt TypeScheme  -- context of top-level definitions
+         => Ctxt Type  -- context of top-level definitions
          -> Def              -- definition
          -> Checker (Maybe ())
-checkDef defCtxt (Def s defName expr pats (Forall _ foralls ty)) = do
+checkDef defCtxt (Def s defName expr pats (Forall foralls ty)) = do
     --TODO: refactor this to prior to checkDef
     -- Make everything at the top-level polymorphically coeffected
-    defCtxt <- mapM dischargePoly defCtxt
+    Just defCtxt <- runMaybeT $ mapM dischargePoly defCtxt
 
     result <- runMaybeT $ do
       -- Add explicit type variable quantifiers to the type variable context
@@ -177,6 +180,40 @@ flipPol Negative = Positive
 
 -- Type check an expression
 
+data Mode = Infer | Check
+data Proxy (m :: Mode) = Proxy
+
+data CResult m where
+    Out ::  MaybeT Checker (Type, Ctxt Assumption) -> CResult Infer
+    In  :: (Type ->  MaybeT Checker (Ctxt Assumption)) -> CResult Check
+
+tyInfer :: Ctxt Assumption -- assumptions
+      -> Polarity        -- polarity of <= constraints
+      -> Bool            -- whether we are at the top-level or not
+      -> Expr            -- expression
+      -> MaybeT Checker (Type, Ctxt Assumption)
+tyInfer as p b e = d
+  where Out d = biCheck as p b e (Proxy :: Proxy Infer)
+
+tyCheck :: Ctxt Assumption -- assumptions
+      -> Polarity        -- polarity of <= constraints
+      -> Bool            -- whether we are at the top-level or not
+      -> Expr            -- expression
+      -> Type
+      -> MaybeT Checker (Ctxt Assumption)
+tyCheck as p b e t = c t
+  where
+    In c = biCheck as p b e (Proxy :: Proxy Check)
+
+biCheck :: Ctxt Assumption -- assumptions
+        -> Polarity        -- polarity of <= constraints
+        -> Bool            -- whether we are at the top-level or not
+        -> Expr            -- expression
+        -> Proxy m         -- mode of the bi-directional algorithm
+        -> CResult m
+biCheck = undefined
+
+
 --  `checkExpr defs gam t expr` computes `Just delta`
 --  if the expression type checks to `t` in context `gam`:
 --  where `delta` gives the post-computation context for expr
@@ -184,7 +221,7 @@ flipPol Negative = Positive
 --  or `Nothing` if the typing does not match.
 
 checkExpr :: (?globals :: Globals )
-          => Ctxt TypeScheme   -- context of top-level definitions
+          => Ctxt Type   -- context of top-level definitions
           -> Ctxt Assumption   -- local typing context
           -> Polarity         -- polarity of <= constraints
           -> Bool             -- whether we are top-level or not
@@ -350,25 +387,34 @@ checkExpr defs gam pol topLevel tau e = do
 
 
 -- | Synthesise the 'Type' of expressions.
+-- | also returning a usage context
 -- See <https://en.wikipedia.org/w/index.php?title=Bidirectional_type_checking&redirect=no>
 synthExpr :: (?globals :: Globals)
-          => Ctxt TypeScheme -- ^ Context of top-level definitions
-          -> Ctxt Assumption   -- ^ Local typing context
-          -> Polarity       -- ^ Polarity of subgrading
-          -> Expr           -- ^ Expression
-          -> MaybeT Checker (TypeScheme, Ctxt Assumption)
+          => Ctxt Type  -- ^ Context of top-level definitions
+          -> Ctxt Assumption  -- ^ Local typing context
+          -> Polarity         -- ^ Polarity of subgrading
+          -> Expr             -- ^ Expression
+          -> MaybeT Checker (Type, Ctxt Assumption)
 
 -- Literals
-synthExpr _ _ _ (Val _ (NumInt _))  = return (TyCon $ mkId "Int", [])
-synthExpr _ _ _ (Val _ (NumFloat _)) = return (TyCon $ mkId "Float", [])
-synthExpr _ _ _ (Val _ (CharLiteral _)) = return (TyCon $ mkId "Char", [])
-synthExpr _ _ _ (Val _ (StringLiteral _)) = return (TyCon $ mkId "String", [])
+synthExpr _ _ _ (Val _ (NumInt _))  =
+  return (TyCon $ mkId "Int", [])
+
+synthExpr _ _ _ (Val _ (NumFloat _)) =
+  return (TyCon $ mkId "Float", [])
+
+synthExpr _ _ _ (Val _ (CharLiteral _)) =
+  return (TyCon $ mkId "Char", [])
+
+synthExpr _ _ _ (Val _ (StringLiteral _)) =
+  return (TyCon $ mkId "String", [])
 
 synthExpr _ gam _ (Val s (Constr c [])) = do
   st <- get
   case lookup c (dataConstructors st) of
     Just tySch -> do
-      (ty,_) <- freshPolymorphicInstance InstanceQ tySch -- discard list of fresh type variables
+      -- Instantiate the constructor
+      (ty,_) <- freshPolymorphicInstance InstanceQ tySch
       return (ty, [])
     -----
     _ -> halt $ UnboundVariableError (Just s) $
@@ -429,6 +475,7 @@ synthExpr defs gam pol (LetDiamond s p optionalTySig e1 e2) = do
              ++ pretty t ++ "' in body of let<>"
 
    where
+      typeLetSubject :: Ctxt Assumption -> Effect -> Type -> MaybeT Checker (Type, Ctxt Assumption)
       typeLetSubject gam1 ef1 ty1 = do
         (binders, _, _)  <- ctxtFromTypedPattern s ty1 p
         pIrrefutable <- isIrrefutable s ty1 p
@@ -437,11 +484,11 @@ synthExpr defs gam pol (LetDiamond s p optionalTySig e1 e2) = do
         else do
            (tau, gam2) <- synthExpr defs (binders ++ gam) pol e2
            case tau of
-            Diamond ef2 ty2 ->
-                typeLetBody gam1 gam2 ef1 ef2 binders ty1 ty2
+            Diamond ef2 ty2 -> do
+                 typeLetBody gam1 gam2 ef1 ef2 binders ty1 ty2
 
             (TyApp (TyCon con) t')
-               | internalName con == "FileIO" || internalName con == "Session" ->
+               | internalName con == "FileIO" || internalName con == "Session" -> do
                  typeLetBody gam1 gam2 ef1 [] binders ty1 t'
 
             t -> halt $ GenericError (Just s)
@@ -462,7 +509,7 @@ synthExpr defs gam _ (Val s (Var x)) =
        -- Try definitions in scope
        case lookup x (defs ++ Primitives.builtins) of
          Just tyScheme  -> do
-           (ty',_) <- freshPolymorphicInstance InstanceQ tyScheme -- discard list of fresh type variables
+           (ty',_) <- freshPolymorphicInstance InstanceQ tyScheme
            return (ty', [])
          -- Couldn't find it
          Nothing  -> halt $ UnboundVariableError (Just s) $ pretty x <?> "synthExpr on variables"
@@ -537,8 +584,8 @@ synthExpr defs gam pol (Binop s op e1 e2) = do
     selectFirstByType t1 t2 ((FunTy opt1 (FunTy opt2 resultTy)):ops) = do
       -- Attempt to use this typing
       (result, local) <- localChecking $ do
-         (eq1, _, _) <- equalTypes s t1 (emptyTypeScheme opt1)
-         (eq2, _, _) <- equalTypes s t2 (emptyTypeScheme opt2)
+         (eq1, _, _) <- equalTypes s t1 opt1
+         (eq2, _, _) <- equalTypes s t2 opt2
          return (eq1 && eq2)
       -- If successful then return this local computation
       case result of
@@ -556,14 +603,14 @@ synthExpr defs gam pol (Val s (Abs p (Just sig) e)) = do
   pIrrefutable <- isIrrefutable s sig p
   if pIrrefutable then do
      (tau, gam'')    <- synthExpr defs (binding ++ gam) pol e
-     return (extrudeTypeScheme (FunTy sig) tau, gam'' `subtractCtxt` binding)
+     return (FunTy sig tau, gam'' `subtractCtxt` binding)
   else refutablePattern s p
 
 synthExpr _ _ _ e =
   halt $ GenericError (Just $ getSpan e) "Type cannot be calculated here; try adding more type signatures."
 
 -- Check an optional type signature for equality against a type
-optionalSigEquality :: (?globals :: Globals) => Span -> Maybe TypeScheme -> TypeScheme -> MaybeT Checker Bool
+optionalSigEquality :: (?globals :: Globals) => Span -> Maybe Type -> Type -> MaybeT Checker Bool
 optionalSigEquality _ Nothing _ = return True
 optionalSigEquality s (Just t) t' = do
     (eq, _, _) <- equalTypes s t' t

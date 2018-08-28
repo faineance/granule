@@ -38,84 +38,84 @@ typeLevelConstructors =
     , (mkId "Dual", (KFun protocol protocol, Nothing))
     ]
 
-dataConstructors :: [(Id, TypeScheme)]
+dataConstructors :: [(Id, Type)]
 dataConstructors =
-    [ (mkId "()", Forall nullSpan [] (TyCon $ mkId "()"))
-    , (mkId ",", Forall nullSpan [((mkId "a"),KType),((mkId "b"),KType)]
+    [ (mkId "()", Forall [] (TyCon $ mkId "()"))
+    , (mkId ",", Forall [((mkId "a"),KType),((mkId "b"),KType)]
         (FunTy (TyVar (mkId "a"))
           (FunTy (TyVar (mkId "b"))
                  (TyApp (TyApp (TyCon (mkId ",")) (TyVar (mkId "a"))) (TyVar (mkId "b"))))))
     ]
 
-builtins :: [(Id, TypeScheme)]
+builtins :: [(Id, Type)]
 builtins =
   [ -- Graded monad unit operation
-    (mkId "pure", Forall nullSpan [(mkId "a", KType)]
+    (mkId "pure", Forall [(mkId "a", KType)]
        $ (FunTy (TyVar $ mkId "a") (Diamond [] (TyVar $ mkId "a"))))
 
     -- String stuff
-  , (mkId "stringAppend", Forall nullSpan []
+  , (mkId "stringAppend", Forall []
       $ (FunTy (TyCon $ mkId "String") (FunTy (TyCon $ mkId "String") (TyCon $ mkId "String"))))
-  , (mkId "showChar", Forall nullSpan []
+  , (mkId "showChar", Forall []
       $ (FunTy (TyCon $ mkId "Char") (TyCon $ mkId "String")))
 
     -- Effectful primitives
-  , (mkId "read", Forall nullSpan [] $ Diamond ["R"] (TyCon $ mkId "String"))
-  , (mkId "write", Forall nullSpan [] $
+  , (mkId "read", Forall [] $ Diamond ["R"] (TyCon $ mkId "String"))
+  , (mkId "write", Forall [] $
        FunTy (TyCon $ mkId "String") (Diamond ["W"] (TyCon $ mkId "()")))
-  , (mkId "readInt", Forall nullSpan [] $ Diamond ["R"] (TyCon $ mkId "Int"))
+  , (mkId "readInt", Forall [] $ Diamond ["R"] (TyCon $ mkId "Int"))
     -- Other primitives
-  , (mkId "intToFloat", Forall nullSpan [] $ FunTy (TyCon $ mkId "Int")
+  , (mkId "intToFloat", Forall [] $ FunTy (TyCon $ mkId "Int")
                                                     (TyCon $ mkId "Float"))
 
-  , (mkId "showInt", Forall nullSpan [] $ FunTy (TyCon $ mkId "Int")
+  , (mkId "showInt", Forall [] $ FunTy (TyCon $ mkId "Int")
                                                     (TyCon $ mkId "String"))
 
     -- File stuff
-  , (mkId "openFile", Forall nullSpan [] $
+  , (mkId "openFile", Forall [] $
                         FunTy (TyCon $ mkId "String")
                           (FunTy (TyCon $ mkId "IOMode")
                                 (Diamond ["O"] (TyCon $ mkId "Handle"))))
-  , (mkId "hGetChar", Forall nullSpan [] $
+  , (mkId "hGetChar", Forall [] $
                         FunTy (TyCon $ mkId "Handle")
                                (Diamond ["RW"]
                                 (TyApp (TyApp (TyCon $ mkId ",")
                                               (TyCon $ mkId "Handle"))
                                        (TyCon $ mkId "Char"))))
-  , (mkId "hPutChar", Forall nullSpan [] $
+  , (mkId "hPutChar", Forall [] $
                         FunTy (TyCon $ mkId "Handle")
                          (FunTy (TyCon $ mkId "Char")
                            (Diamond ["W"] (TyCon $ mkId "Handle"))))
-  , (mkId "isEOF", Forall nullSpan [] $
+  , (mkId "isEOF", Forall [] $
                      FunTy (TyCon $ mkId "Handle")
                             (Diamond ["R"]
                              (TyApp (TyApp (TyCon $ mkId ",")
                                            (TyCon $ mkId "Handle"))
                                     (TyCon $ mkId "Bool"))))
-  , (mkId "hClose", Forall nullSpan [] $
+  , (mkId "hClose", Forall [] $
                         FunTy (TyCon $ mkId "Handle")
                                (Diamond ["C"] (TyCon $ mkId "()")))
     -- protocol typed primitives
-  , (mkId "send", Forall nullSpan [(mkId "a", KType), (mkId "s", protocol)]
+  , (mkId "send", Forall [(mkId "a", KType), (mkId "s", protocol)]
                   $ ((con "Chan") .@ (((con "Send") .@ (var "a")) .@  (var "s")))
                       .-> ((var "a")
                         .-> (Diamond ["Com"] ((con "Chan") .@ (var "s")))))
 
-  , (mkId "recv", Forall nullSpan [(mkId "a", KType), (mkId "s", protocol)]
+  , (mkId "recv", Forall [(mkId "a", KType), (mkId "s", protocol)]
        $ ((con "Chan") .@ (((con "Recv") .@ (var "a")) .@  (var "s")))
          .-> (Diamond ["Com"] ((con "," .@ (var "a")) .@ ((con "Chan") .@ (var "s")))))
 
-  , (mkId "close", Forall nullSpan [] $
+  , (mkId "close", Forall [] $
                     ((con "Chan") .@ (con "End")) .-> (Diamond ["Com"] (con "()")))
 
   -- fork : (c -> Diamond ()) -> Diamond c'
-  , (mkId "fork", Forall nullSpan [(mkId "s", protocol)] $
+  , (mkId "fork", Forall [(mkId "s", protocol)] $
                     (((con "Chan") .@ (TyVar $ mkId "s")) .-> (Diamond ["Com"] (con "()")))
                     .->
                     (Diamond ["Com"] ((con "Chan") .@ ((TyCon $ mkId "Dual") .@ (TyVar $ mkId "s")))))
 
    -- forkRep : (c |n| -> Diamond ()) -> Diamond (c' |n|)
-  , (mkId "forkRep", Forall nullSpan [(mkId "s", protocol), (mkId "n", KConstr $ mkId "Nat=")] $
+  , (mkId "forkRep", Forall [(mkId "s", protocol), (mkId "n", KConstr $ mkId "Nat=")] $
                     (Box (CVar $ mkId "n")
                        ((con "Chan") .@ (TyVar $ mkId "s")) .-> (Diamond ["Com"] (con "()")))
                     .->

@@ -17,3 +17,6 @@ getEnd = snd . getSpan
 
 getStart ::  FirstParameter t Span => t -> Pos
 getStart = fst . getSpan
+
+spanCompose :: Span -> Span -> Span
+spanCompose (x, _) (_, y) = (x, y)

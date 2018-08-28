@@ -87,26 +87,19 @@ instance Substitutable Substitutors where
   unify (SubstE e) (SubstE e') = unify e e'
   unify _ _ = return Nothing
 
-instance Substitutable TypeScheme where
-  substitute subst tys = do
-    -- fresh binders
-    let Forall s binders ty = runFreshener tys
-    ty' <- substitute subst ty
-    return $ Forall s binders ty'
-
-  unify (Forall _ binders1 ty1) (Forall _ binders2 ty2) = do
-    subst <- unify ty1 ty2
-    case subst of
-      Nothing -> return Nothing
-      Just subst ->
-        return $ Just $ (subst `subtractCtxt` binders1) `subtractCtxt` binders2
-
 instance Substitutable Type where
   substitute subst = typeFoldM (baseTypeFold
                               { tfTyVar = varSubst
                               , tfBox = box
-                              , tfDiamond = dia })
+                              , tfDiamond = dia
+                              , tfForall = forall })
     where
+      forall bs ty = do
+        -- fresh binders
+        let ty' = runFreshener ty
+        ty'' <- substitute subst ty'
+        return $ Forall bs ty''
+
       box c t = do
         c <- substitute subst c
         t <- substitute subst t
@@ -159,6 +152,12 @@ instance Substitutable Type where
       -- No unification
       _ -> return $ Nothing
   -- No unification
+  unify (Forall binders1 ty1) (Forall binders2 ty2) = do
+    subst <- unify ty1 ty2
+    case subst of
+      Nothing -> return Nothing
+      Just subst ->
+        return $ Just $ (subst `subtractCtxt` binders1) `subtractCtxt` binders2
   unify _ _ = return $ Nothing
 
 instance Substitutable Coeffect where
@@ -458,8 +457,8 @@ renameType subst t =
 -- | Get a fresh polymorphic instance of a type scheme and list of instantiated type variables
 -- and their new names.
 freshPolymorphicInstance :: (?globals :: Globals)
-  => Quantifier -> TypeScheme -> MaybeT Checker (Type, [Id])
-freshPolymorphicInstance quantifier (Forall s kinds ty) = do
+  => Quantifier -> Type -> MaybeT Checker (Type, [Id])
+freshPolymorphicInstance quantifier (Forall kinds ty) = do
     -- Universal becomes an existential (via freshCoeffeVar)
     -- since we are instantiating a polymorphic type
     renameMap <- mapM instantiateVariable kinds
@@ -490,3 +489,7 @@ freshPolymorphicInstance quantifier (Forall s kinds ty) = do
     typeBased KType = True
     typeBased (KFun k1 k2) = typeBased k1 && typeBased k2
     typeBased _     = False
+
+-- Trying to instantiate something that does not have a quantifier at top-level
+freshPolymorphicInstance quantifier ty =
+  return ty

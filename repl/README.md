@@ -89,7 +89,7 @@ Def ((32,1),(36,27)) (Id "add" "add") (Case ((34,3),(36,27)) (Val ((34,8),(34,8)
 ```
 #### :parse <expression or type\> (:p)
 <a id="parse"></a>
-Run Granule parser on an expression and display Expr.  If input is not an expression parser will attempt to run it against the TypeScheme parser and display the TypeScheme
+Run Granule parser on an expression and display Expr.  If input is not an expression parser will attempt to run it against the Type parser and display the Type
 ```
 Granule> :p sum (Cons 1(Cons 2 Nil))
 App ((1,1),(1,20)) (Val ((1,1),(1,1)) (Var (Id "sum" "sum"))) (App ((1,6),(1,20)) (App ((1,6),(1,11)) (Val ((1,6),(1,6)) (Constr (Id "Cons" "Cons") [])) (Val ((1,11),(1,11)) (NumInt 1))) (App ((1,13),(1,20)) (App ((1,13),(1,18)) (Val ((1,13),(1,13)) (Constr (Id "Cons" "Cons") [])) (Val ((1,18),(1,18)) (NumInt 2))) (Val ((1,20),(1,20)) (Constr (Id "Nil" "Nil") []))))
@@ -97,7 +97,7 @@ App ((1,1),(1,20)) (Val ((1,1),(1,1)) (Var (Id "sum" "sum"))) (App ((1,6),(1,20)
 ```
 Granule> :p Int -> Int
 1:5: parse error
-Input not an expression, checking for TypeScheme
+Input not an expression, checking for Type
 Forall ((0,0),(0,0)) [] (FunTy (TyCon (Id "Int" "Int")) (TyCon (Id "Int" "Int")))
 ```
 #### :lexer <string\> (:x)

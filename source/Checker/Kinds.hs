@@ -40,6 +40,9 @@ kindCheckDef (Def s _ _ _ (Forall quantifiedVariables ty)) = do
     KType -> modify (\st -> st { tyVarContext = [] })
     _     -> illKindedNEq s KType kind
 
+kindCheckDef (Def s defName expr pats ty) =
+  kindCheckDef (Def s defName expr pats (Forall [] ty))
+
 inferKindOfType :: (?globals :: Globals) => Span -> Type -> MaybeT Checker Kind
 inferKindOfType s t = do
     checkerState <- get

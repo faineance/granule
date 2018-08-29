@@ -33,8 +33,6 @@ import Syntax.Expr
 import Syntax.Pretty
 import Utils
 
--- import Debug.Trace
-
 data CheckerResult = Failed | Ok deriving (Eq, Show)
 
 -- Checking (top-level)
@@ -115,6 +113,9 @@ checkDataCon tName kind tyVarsT (DataConstrG sp dName tySch@(Forall tyVarsD ty))
     check (TyApp fun arg) = check fun
     check x = halt $ GenericError (Just sp) $ "`" ++ pretty x ++ "` not valid in a datatype definition."
 
+checkDataCon tName kind tyVarsT (DataConstrG sp dName ty) =
+  checkDataCon tName kind tyVarsT (DataConstrG sp dName (Forall [] ty))
+
 checkDataCon tName _ tyVars (DataConstrA sp dName params) = do
     st <- get
     case extend (dataConstructors st) dName tySch of
@@ -170,6 +171,9 @@ checkDef defCtxt (Def s defName expr pats (Forall foralls ty)) = do
     -- Erase the solver predicate between definitions
     modify (\st -> st { predicateStack = [], tyVarContext = [], kVarContext = [] })
     return result
+
+checkDef defCtxt (Def s defName expr pats ty) =
+  checkDef defCtxt (Def s defName expr pats (Forall [] ty))
 
 data Polarity = Positive | Negative deriving Show
 

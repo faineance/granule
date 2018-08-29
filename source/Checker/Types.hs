@@ -62,11 +62,15 @@ equalTypesRelatedCoeffectsAndUnify :: (?globals :: Globals )
   --    * the most specialised type (after the unifier is applied)
   --    * the unifier
   -> MaybeT Checker (Bool, Type, Substitution)
-equalTypesRelatedCoeffectsAndUnify
-  s rel allowUniversalSpecialisation spec ts1@(Forall bs1 t1) ts2@(Forall bs2 t2) = do
-
-   (eq, unif) <- equalTypesRelatedCoeffects s rel allowUniversalSpecialisation t1 t2 bs1 bs2 spec
-   if eq
+equalTypesRelatedCoeffectsAndUnify s rel allowUniversalSpecialise spec ts1 ts2 = do
+  let (bs1, t1, bs2, t2) =
+       case (ts1, ts2) of
+        -- Universally quantified type (at the top-level)
+        (Forall bs1 t1, Forall bs2 t2) -> (bs1, t1, bs2, t2)
+        -- Naked type
+        (t1, t2)                       -> ([], t1, [], t2)
+  (eq, unif) <- equalTypesRelatedCoeffects s rel allowUniversalSpecialise t1 t2 bs1 bs2 spec
+  if eq
      then do
         t2 <- substitute unif t2
         return (eq, ts2, unif)

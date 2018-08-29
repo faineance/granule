@@ -455,7 +455,7 @@ renameType subst t =
         Nothing -> return $ TyVar v
 
 -- | Get a fresh polymorphic instance of a type scheme and list of instantiated type variables
--- and their new names.
+-- (skolemized variables) and their new names.
 freshPolymorphicInstance :: (?globals :: Globals)
   => Quantifier -> Type -> MaybeT Checker (Type, [Id])
 freshPolymorphicInstance quantifier (Forall kinds ty) = do
@@ -492,4 +492,4 @@ freshPolymorphicInstance quantifier (Forall kinds ty) = do
 
 -- Trying to instantiate something that does not have a quantifier at top-level
 freshPolymorphicInstance quantifier ty =
-  return ty
+  return (ty, [])

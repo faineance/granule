@@ -170,26 +170,15 @@ Kind :: { Kind }
                                   "Coeffect" -> KCoeffect
                                   s          -> KConstr $ mkId s }
 Type :: { Type }
-  : forall '(' VarSigs ')' '.' Type0  { Forall $3 $6 }
-  | forall VarSigs '.' Type0          { Forall $2 $4 }
-  | Type0                             { $1 }
+  : forall '(' VarSigs ')' '.' TypeAlt { Forall $3 $6 }
+  | forall VarSigs '.' TypeAlt          { Forall $2 $4 }
+  | TypeAlt                           { $1 }
 
-TypeLeft :: { Type }
-TypeLeft
-  : '(' forall '(' VarSigs ')' '.' Type0 ')' { Forall $4 $7 }
-  | '(' forall VarSigs '.' Type0 ')'         { Forall $3 $5 }
-  | TyJuxt                                   { $1 }
-  | '(' Type0 ')'                            { $2 }
-  | Type1                                    { $1 }
-
-Type0 :: { Type }
-  : TyJuxt                    { $1 }
-  | TypeLeft '->' Type0       { FunTy $1 $3 }
-  | Type1                     { $1 }
-
-Type1 :: { Type }
-  : TyAtom '|' Coeffect '|'   { Box $3 $1 }
-  | TyAtom '<' Effect '>'     { Diamond $3 $1 }
+TypeAlt :: { Type }
+    : TyJuxt                    { $1 }
+    | TypeAlt '->' TypeAlt      { FunTy $1 $3 }
+    | TyAtom '|' Coeffect '|'   { Box $3 $1 }
+    | TyAtom '<' Effect '>'     { Diamond $3 $1 }
 
 TyJuxt :: { Type }
   : TyJuxt '`' TyAtom '`'     { TyApp $3 $1 }

@@ -535,7 +535,8 @@ synthExpr gam _ (Val s (Var x)) =
      Just (Linear ty)       -> return (ty, [(x, Linear ty)])
      Just (Discharged ty c) -> do
        k <- inferCoeffectType s c
-       return (ty, [(x, Discharged ty (COne k))])
+       (ty', _) <- freshPolymorphicInstance InstanceQ ty
+       return (ty', [(x, Discharged ty' (COne k))])
 
 -- Specialised application for scale
 synthExpr gam pol

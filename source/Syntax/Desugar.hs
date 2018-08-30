@@ -22,10 +22,11 @@ import Control.Monad.State.Strict
    binding. -}
 desugar :: Def -> Def
 -- desugar adt@ADT{} = adt
-desugar (Def s var expr pats tys@(Forall _ ty)) =
-  Def s var (evalState (typeDirectedDesugar pats ty expr) (0 :: Int)) [] tys
+desugar (Def s var expr pats ty) =
+  Def s var (evalState (typeDirectedDesugar pats ty expr) (0 :: Int)) [] ty
   where
     typeDirectedDesugar [] _ e = return e
+    typeDirectedDesugar ps (Forall _ t) e = typeDirectedDesugar ps t e
     typeDirectedDesugar (p : ps) (FunTy t1 t2) e = do
       e' <- typeDirectedDesugar ps t2 e
       return $ Val nullSpan $ Abs p (Just t1) e'

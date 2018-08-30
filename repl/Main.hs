@@ -170,8 +170,10 @@ buildForEval [] _ = []
 buildForEval (x:xs) m = buildAST (sourceName x) m ++ buildForEval xs m
 
 synType :: (?globals::Globals) => Expr -> Ctxt Type -> Mo.CheckerState -> IO (Maybe (Type, Ctxt Mo.Assumption))
-synType exp [] cs = liftIO $ Mo.evalChecker cs $ runMaybeT $ synthExpr empty empty Positive exp
-synType exp cts cs = liftIO $ Mo.evalChecker cs $ runMaybeT $ synthExpr cts empty Positive exp
+synType exp [] cs = liftIO $ Mo.evalChecker cs $ runMaybeT $ synthExpr empty Positive exp
+synType exp cts cs = liftIO $ Mo.evalChecker cs $ runMaybeT $ do
+   gamma <- topLevelDefinitionsToContext cts
+   synthExpr gamma Positive exp
 
 synTypeBuilder :: (?globals::Globals) => Expr -> [Def] -> [DataDecl] -> REPLStateIO Type
 synTypeBuilder exp ast adt = do

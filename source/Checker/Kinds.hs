@@ -142,8 +142,9 @@ inferCoeffectType s (CVar cvar) = do
   st <- get
   case lookup cvar (tyVarContext st) of
      Nothing -> do
-       halt $ UnboundVariableError (Just s) $ "Tried to look up kind of `" ++ pretty cvar ++ "`"
-                                              <?> show (cvar,(tyVarContext st))
+       halt $ UnboundVariableError (Just s)
+               $ "Tried to look up kind of `" ++ pretty cvar ++ "`"
+                 <?> show (cvar,(tyVarContext st))
 --       state <- get
 --       let newType = TyVar $ "ck" ++ show (uniqueVarId state)
        -- We don't know what it is yet though, so don't update the coeffect kind ctxt

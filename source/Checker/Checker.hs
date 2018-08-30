@@ -50,8 +50,11 @@ check (AST dataDecls defs) = do
             status <- runMaybeT checkKinds
             case status of
               Nothing -> return [Nothing]
-              Just _  -> -- Now check the definition
-                mapM (checkDef defCtxt) defs
+              Just _  -> do
+                -- Make everything at the top-level polymorphically coeffected
+                Just gamma <- runMaybeT $ topLevelDefinitionsToContext defCtxt
+                -- Now check the definition
+                mapM (checkDef gamma) defs
 
       -- ... and evaluate the computation with initial state
       let thingsToCheck = (++) <$> checkDataDecls <*> checkedDefs
@@ -127,30 +130,36 @@ checkDataCon tName _ tyVars (DataConstrA sp dName params) = do
     returnTy t [] = t
     returnTy t (v:vs) = returnTy (TyApp t ((TyVar . fst) v)) vs
 
-dischargePoly (v, ty) = do
-  kvar <- freshVar "topk"
-  let kind = TyVar (mkId kvar)
-  c <- freshCoeffectVarWithBinding (mkId "top") kind ForallQ
-  return $ (v, Discharged ty $ CVar c)
+-- Map a context of types to an assumption context
+topLevelDefinitionsToContext
+  :: (?globals :: Globals) => Ctxt Type -> MaybeT Checker (Ctxt Assumption)
+topLevelDefinitionsToContext defCtxt =
+    mapM dischargePoly defCtxt
+  where
+    dischargePoly (v, ty) = do
+      --kvar <- freshVar "topk"
+      --let kind = TyVar (mkId kvar)
+      let kind = TyCon (mkId $ "Nat")
+      c <- freshCoeffectVarWithBinding (mkId "top") kind ForallQ
+      return $ (v, Discharged ty $ CVar c)
 
 checkDef :: (?globals :: Globals )
-         => Ctxt Type  -- context of top-level definitions
-         -> Def              -- definition
+         => Ctxt Assumption -- context of top-level definitions
+         -> Def             -- current definition
          -> Checker (Maybe ())
 checkDef defCtxt (Def s defName expr pats (Forall foralls ty)) = do
-    --TODO: refactor this to prior to checkDef
-    -- Make everything at the top-level polymorphically coeffected
-    Just defCtxt <- runMaybeT $ mapM dischargePoly defCtxt
+    st <- get
+    let previousTyVarContext = tyVarContext st
 
     result <- runMaybeT $ do
       -- Add explicit type variable quantifiers to the type variable context
-      modify (\st -> st { tyVarContext = map (\(n, c) -> (n, (c, ForallQ))) foralls})
+      modify (\st -> st { tyVarContext = tyVarContext st ++ map (\(n, c) -> (n, (c, ForallQ))) foralls})
 
       -- Type the patterns
       (patternGam, ty') <- ctxtFromTypedPatterns s ty pats
 
       -- Check the body in the context given by the pattern matching
-      (outGam, _) <- checkExpr [] (defCtxt ++ patternGam) Positive True ty' expr
+      (outGam, _) <- checkExpr (defCtxt ++ patternGam) Positive True ty' expr
       -- Check that the outgoing context is a subgrading of the incoming
       approximatedByCtxt s outGam patternGam
 
@@ -169,7 +178,9 @@ checkDef defCtxt (Def s defName expr pats (Forall foralls ty)) = do
         else halt $ GenericError (Just s) "Constraints violated"
 
     -- Erase the solver predicate between definitions
-    modify (\st -> st { predicateStack = [], tyVarContext = [], kVarContext = [] })
+    modify (\st -> st { predicateStack = []
+                      , tyVarContext = previousTyVarContext
+                      , kVarContext = [] })
     return result
 
 checkDef defCtxt (Def s defName expr pats ty) =
@@ -218,15 +229,14 @@ biCheck :: Ctxt Assumption -- assumptions
 biCheck = undefined
 
 
---  `checkExpr defs gam t expr` computes `Just delta`
+--  `checkExpr gam t expr` computes `Just delta`
 --  if the expression type checks to `t` in context `gam`:
 --  where `delta` gives the post-computation context for expr
 --  (which explains the exact coeffect demands)
 --  or `Nothing` if the typing does not match.
 
 checkExpr :: (?globals :: Globals )
-          => Ctxt Type   -- context of top-level definitions
-          -> Ctxt Assumption   -- local typing context
+          => Ctxt Assumption  -- local typing context
           -> Polarity         -- polarity of <= constraints
           -> Bool             -- whether we are top-level or not
           -> Type             -- type
@@ -235,10 +245,10 @@ checkExpr :: (?globals :: Globals )
 
 -- Checking of constants
 
-checkExpr _ _ _ _ (TyCon c) (Val _ (NumInt _))   | internalName c == "Int"   = return ([], [])
-checkExpr _ _ _ _ (TyCon c) (Val _ (NumFloat _)) | internalName c == "Float" = return ([], [])
+checkExpr _ _ _ (TyCon c) (Val _ (NumInt _))   | internalName c == "Int"   = return ([], [])
+checkExpr _ _ _ (TyCon c) (Val _ (NumFloat _)) | internalName c == "Float" = return ([], [])
 
-checkExpr defs gam pol _ (FunTy sig tau) (Val s (Abs p t e)) = do
+checkExpr gam pol _ (FunTy sig tau) (Val s (Abs p t e)) = do
   -- If an explicit signature on the lambda was given, then check
   -- it confirms with the type being checked here
   (tau', subst1) <- case t of
@@ -253,7 +263,7 @@ checkExpr defs gam pol _ (FunTy sig tau) (Val s (Abs p t e)) = do
   pIrrefutable <- isIrrefutable s sig p
   if pIrrefutable then do
     -- Check the body in the extended context
-    (gam', subst2) <- checkExpr defs (bindings ++ gam) pol False tau' e
+    (gam', subst2) <- checkExpr (bindings ++ gam) pol False tau' e
     -- Check linearity of locally bound variables
     case checkLinearity bindings gam' of
        [] -> do
@@ -264,15 +274,15 @@ checkExpr defs gam pol _ (FunTy sig tau) (Val s (Abs p t e)) = do
   else refutablePattern s p
 
 -- Application special case for built-in 'scale'
-checkExpr defs gam pol topLevel tau
+checkExpr gam pol topLevel tau
           (App s (App _ (Val _ (Var v)) (Val _ (NumFloat x))) e) | internalName v == "scale" = do
     equalTypes s (TyCon $ mkId "Float") tau
-    checkExpr defs gam pol topLevel (Box (CFloat (toRational x)) (TyCon $ mkId "Float")) e
+    checkExpr gam pol topLevel (Box (CFloat (toRational x)) (TyCon $ mkId "Float")) e
 
 -- Application checking
-checkExpr defs gam pol topLevel tau (App s e1 e2) = do
-    (argTy, gam2) <- synthExpr defs gam pol e2
-    (gam1, subst) <- checkExpr defs gam (flipPol pol) topLevel (FunTy argTy tau) e1
+checkExpr gam pol topLevel tau (App s e1 e2) = do
+    (argTy, gam2) <- synthExpr gam pol e2
+    (gam1, subst) <- checkExpr gam (flipPol pol) topLevel (FunTy argTy tau) e1
     gam <- ctxPlus s gam1 gam2
     return (gam, subst)
 
@@ -285,10 +295,10 @@ checkExpr defs gam pol topLevel tau (App s e1 e2) = do
 -}
 
 -- Promotion
-checkExpr defs gam pol _ (Box demand tau) (Val s (Promote e)) = do
+checkExpr gam pol _ (Box demand tau) (Val s (Promote e)) = do
     let vars = freeVars e -- map fst gam
     gamF    <- discToFreshVarsIn s vars gam demand
-    (gam', subst) <- checkExpr defs gamF pol False tau e
+    (gam', subst) <- checkExpr gamF pol False tau e
 
     guardGam <- allGuardContexts
     guardGam' <- filterM isLevelKinded guardGam
@@ -304,9 +314,9 @@ checkExpr defs gam pol _ (Box demand tau) (Val s (Promote e)) = do
                          | otherwise                 -> False
 
 -- Dependent pattern-matching case (only at the top level)
-checkExpr defs gam pol True tau (Case s guardExpr cases) = do
+checkExpr gam pol True tau (Case s guardExpr cases) = do
   -- Synthesise the type of the guardExpr
-  (guardTy, guardGam) <- synthExpr defs gam pol guardExpr
+  (guardTy, guardGam) <- synthExpr gam pol guardExpr
   pushGuardContext guardGam
 
   -- Check each of the branches
@@ -324,7 +334,7 @@ checkExpr defs gam pol True tau (Case s guardExpr cases) = do
       (specialisedGam, unspecialisedGam) <- substCtxt subst gam
 
       let checkGam = patternGam ++ specialisedGam ++ unspecialisedGam
-      (localGam, subst') <- checkExpr defs checkGam pol False tau' e_i
+      (localGam, subst') <- checkExpr checkGam pol False tau' e_i
 
       approximatedByCtxt s localGam checkGam
 
@@ -358,8 +368,8 @@ checkExpr defs gam pol True tau (Case s guardExpr cases) = do
   return (g, concat substs)
 
 -- All other expressions must be checked using synthesis
-checkExpr defs gam pol topLevel tau e = do
-  (tau', gam') <- synthExpr defs gam pol e
+checkExpr gam pol topLevel tau e = do
+  (tau', gam') <- synthExpr gam pol e
   (tyEq, _, subst) <-
     case pol of
       Positive -> do
@@ -394,26 +404,25 @@ checkExpr defs gam pol topLevel tau e = do
 -- | also returning a usage context
 -- See <https://en.wikipedia.org/w/index.php?title=Bidirectional_type_checking&redirect=no>
 synthExpr :: (?globals :: Globals)
-          => Ctxt Type  -- ^ Context of top-level definitions
-          -> Ctxt Assumption  -- ^ Local typing context
+          => Ctxt Assumption  -- ^ Local typing context
           -> Polarity         -- ^ Polarity of subgrading
           -> Expr             -- ^ Expression
           -> MaybeT Checker (Type, Ctxt Assumption)
 
 -- Literals
-synthExpr _ _ _ (Val _ (NumInt _))  =
+synthExpr _ _ (Val _ (NumInt _))  =
   return (TyCon $ mkId "Int", [])
 
-synthExpr _ _ _ (Val _ (NumFloat _)) =
+synthExpr _ _ (Val _ (NumFloat _)) =
   return (TyCon $ mkId "Float", [])
 
-synthExpr _ _ _ (Val _ (CharLiteral _)) =
+synthExpr _ _ (Val _ (CharLiteral _)) =
   return (TyCon $ mkId "Char", [])
 
-synthExpr _ _ _ (Val _ (StringLiteral _)) =
+synthExpr _ _ (Val _ (StringLiteral _)) =
   return (TyCon $ mkId "String", [])
 
-synthExpr _ gam _ (Val s (Constr c [])) = do
+synthExpr gam _ (Val s (Constr c [])) = do
   st <- get
   case lookup c (dataConstructors st) of
     Just tySch -> do
@@ -425,9 +434,9 @@ synthExpr _ gam _ (Val s (Constr c [])) = do
               "Data constructor `" ++ pretty c ++ "`" <?> show (dataConstructors st)
 
 -- Case
-synthExpr defs gam pol (Case s guardExpr cases) = do
+synthExpr gam pol (Case s guardExpr cases) = do
   -- Synthesise the type of the guardExpr
-  (ty, guardGam) <- synthExpr defs gam pol guardExpr
+  (ty, guardGam) <- synthExpr gam pol guardExpr
   -- then synthesise the types of the branches
   branchTysAndCtxts <-
     forM cases $ \(pati, ei) -> do
@@ -436,7 +445,7 @@ synthExpr defs gam pol (Case s guardExpr cases) = do
       (patternGam, eVars, _) <- ctxtFromTypedPattern s ty pati
       newConjunct
       ---
-      (tyCase, localGam) <- synthExpr defs (patternGam ++ gam) pol ei
+      (tyCase, localGam) <- synthExpr (patternGam ++ gam) pol ei
       concludeImplication eVars
       -- Check linear use in anything Linear
       case checkLinearity patternGam localGam of
@@ -461,11 +470,11 @@ synthExpr defs gam pol (Case s guardExpr cases) = do
   return (eqTypes, gamNew)
 
 -- Diamond cut
-synthExpr defs gam pol (LetDiamond s p optionalTySig e1 e2) = do
+synthExpr gam pol (LetDiamond s p optionalTySig e1 e2) = do
   -- TODO: refactor this once we get a proper mechanism for
   -- specifying effect over-approximations and type aliases
 
-  (sig, gam1) <- synthExpr defs gam pol e1
+  (sig, gam1) <- synthExpr gam pol e1
   case sig of
     (TyApp (TyCon con) t')
       | internalName con == "FileIO" || internalName con == "Session" ->
@@ -486,7 +495,7 @@ synthExpr defs gam pol (LetDiamond s p optionalTySig e1 e2) = do
         if not pIrrefutable
         then refutablePattern s p
         else do
-           (tau, gam2) <- synthExpr defs (binders ++ gam) pol e2
+           (tau, gam2) <- synthExpr (binders ++ gam) pol e2
            case tau of
             Diamond ef2 ty2 -> do
                  typeLetBody gam1 gam2 ef1 ef2 binders ty1 ty2
@@ -506,12 +515,12 @@ synthExpr defs gam pol (LetDiamond s p optionalTySig e1 e2) = do
             [] -> return (Diamond (ef1 ++ ef2) ty2, gamNew)
             xs -> illLinearityMismatch s xs
 -- Variables
-synthExpr defs gam _ (Val s (Var x)) =
-   -- Try the local context
+synthExpr gam _ (Val s (Var x)) =
+   -- Try the local context (includes top-level defs)
    case lookup x gam of
      Nothing ->
-       -- Try definitions in scope
-       case lookup x (defs ++ Primitives.builtins) of
+       -- Try definitions in built-ins
+       case lookup x Primitives.builtins of
          Just tyScheme  -> do
            (ty',_) <- freshPolymorphicInstance InstanceQ tyScheme
            return (ty', [])
@@ -529,18 +538,18 @@ synthExpr defs gam _ (Val s (Var x)) =
        return (ty, [(x, Discharged ty (COne k))])
 
 -- Specialised application for scale
-synthExpr defs gam pol
+synthExpr gam pol
       (App _ (Val _ (Var v)) (Val _ (NumFloat r))) | internalName v == "scale" = do
   let float = TyCon $ mkId "Float"
   return (FunTy (Box (CFloat (toRational r)) float) float, [])
 
 -- Application
-synthExpr defs gam pol (App s e e') = do
-    (fTy, gam1) <- synthExpr defs gam pol e
+synthExpr gam pol (App s e e') = do
+    (fTy, gam1) <- synthExpr gam pol e
     case fTy of
       -- Got a function type for the left-hand side of application
       (FunTy sig tau) -> do
-         (gam2, subst) <- checkExpr defs gam (flipPol pol) False sig e'
+         (gam2, subst) <- checkExpr gam (flipPol pol) False sig e'
          gamNew <- ctxPlus s gam1 gam2
          tau    <- substitute subst tau
          return (tau, gamNew)
@@ -551,7 +560,7 @@ synthExpr defs gam pol (App s e e') = do
                    ++ " but has type '" ++ pretty t ++ "'"
 
 -- Promotion
-synthExpr defs gam pol (Val s (Promote e)) = do
+synthExpr gam pol (Val s (Promote e)) = do
    debugM "Synthing a promotion of " $ pretty e
 
    -- Create a fresh kind variable for this coeffect
@@ -562,14 +571,14 @@ synthExpr defs gam pol (Val s (Promote e)) = do
 
    gamF <- discToFreshVarsIn s (freeVars e) gam (CVar var)
 
-   (t, gam') <- synthExpr defs gamF pol e
+   (t, gam') <- synthExpr gamF pol e
 
    return (Box (CVar var) t, multAll (freeVars e) (CVar var) gam')
 
 -- BinOp
-synthExpr defs gam pol (Binop s op e1 e2) = do
-    (t1, gam1) <- synthExpr defs gam pol e1
-    (t2, gam2) <- synthExpr defs gam pol e2
+synthExpr gam pol (Binop s op e1 e2) = do
+    (t1, gam1) <- synthExpr gam pol e1
+    (t2, gam2) <- synthExpr gam pol e2
     -- Look through the list of operators (of which there might be
     -- multiple matching operators)
     case lookupMany op Primitives.binaryOperators of
@@ -601,16 +610,16 @@ synthExpr defs gam pol (Binop s op e1 e2) = do
 
 -- Abstraction, can only synthesise the types of
 -- lambda in Church style (explicit type)
-synthExpr defs gam pol (Val s (Abs p (Just sig) e)) = do
+synthExpr gam pol (Val s (Abs p (Just sig) e)) = do
   (binding, _, subst) <- ctxtFromTypedPattern s sig p
 
   pIrrefutable <- isIrrefutable s sig p
   if pIrrefutable then do
-     (tau, gam'')    <- synthExpr defs (binding ++ gam) pol e
+     (tau, gam'')    <- synthExpr (binding ++ gam) pol e
      return (FunTy sig tau, gam'' `subtractCtxt` binding)
   else refutablePattern s p
 
-synthExpr _ _ _ e =
+synthExpr _ _ e =
   halt $ GenericError (Just $ getSpan e) "Type cannot be calculated here; try adding more type signatures."
 
 -- Check an optional type signature for equality against a type

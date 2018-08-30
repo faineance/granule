@@ -353,7 +353,7 @@ approximatedByOrEqualConstraint :: SCoeffect -> SCoeffect -> SBool
 approximatedByOrEqualConstraint (SNat Ordered n) (SNat Ordered m)   = n .<= m
 approximatedByOrEqualConstraint (SNat Discrete n) (SNat Discrete m) = n .== m
 approximatedByOrEqualConstraint (SFloat n) (SFloat m)   = n .<= m
-approximatedByOrEqualConstraint (SLevel l) (SLevel k) = l .>= k
+approximatedByOrEqualConstraint (SLevel l) (SLevel k) = l .<= k
 approximatedByOrEqualConstraint (SSet s) (SSet t) =
   if s == t then true else false
 approximatedByOrEqualConstraint x y =

@@ -111,10 +111,14 @@ unflatten : forall (a : Type, n : Nat, m : Nat) . a |n*m| -> (a |n|) |m|
 unflatten |x| = ||x||
 
 --- Push coeffects on a pair into the left and right elements
-push : forall (a : Type, b : Type, n : Nat) . (a, b) |n+1| -> (a |n+1|, b |n+1|)
-push |(x, y)| = (|x|, |y|)
+prodPush : forall (a : Type, b : Type, n : Nat) . (a, b) |n+1| -> (a |n+1|, b |n+1|)
+prodPush |(x, y)| = (|x|, |y|)
 
 --- Pull coeffects of pair elements up to the pair
-pull : forall (a : Type, b : Type, n : Nat, m : Nat)
+prodPull : forall (a : Type, b : Type, n : Nat, m : Nat)
      . (a |n|, b |m|) -> (a, b) |n /\ m|
-pull (|x|, |y|) = |(x, y)|
+prodPull (|x|, |y|) = |(x, y)|
+
+-- Push coeffect in on a function type (corresponds to the K axiom of modal logic)
+funPush : forall (a : Type, b : Type, n : Nat) . (a -> b) |n|  -> (a |n| -> b |n|)
+funPush |f| |x| = |(f x)|

@@ -1,0 +1,31 @@
+pin : Int |Private|
+pin = |42|
+
+leak : Int |Private| -> Int
+leak |x| = x
+
+--boo : Int |Public| -> Int
+--boo |x| = x
+
+bad : Int
+bad = leak pin
+
+--foo : (Int |Public|) |Private| -> Int |Public|
+--foo ||x|| = |x|
+
+veryBad : Int |Public|
+veryBad = |(leak pin)|
+
+funPush : forall (a : Type, b : Type, l : Level) . (a -> b) |l|  -> (a |l| -> b |l|)
+funPush |f| |x| = |(f x)|
+
+-- funPush |leak| : (a |l*Private| -> b |l|)
+-- funPush |leak| pin : (a |Private| -> b) |Public|  -> (a |Public*Private| -> b |Public|) : Int |Public|
+bood : Int |Public|
+bood = funPush |leak| |pin|
+
+funPush' : forall (a : Type, b : Type, l : Level, k : Level) . (a |k| -> b) |l|  -> (a |l*k| -> b |l|)
+funPush' |f| |x| = |(f |x|)|
+
+--bood' : Int |Public|
+--bood' = funPush' |leak| pin

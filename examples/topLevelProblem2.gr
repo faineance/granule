@@ -1,0 +1,27 @@
+pin : Int |2|
+pin = |42|
+
+leak : Int |2| -> Int
+leak |x| = x
+
+bad : Int
+bad = leak pin
+
+veryBad : Int |10|
+veryBad = |(leak pin)|
+
+--foo : (Int |3=| -> Int) |5=|  -> Int |5=|
+--foo |f| = |(f |42|)
+
+test : forall (n : Nat, m : Nat) . (Int |2|) |10| -> (Int |2| -> Int) |10| -> Int |10|
+test |pin| |leak| = |(leak pin)|
+
+test : forall (n : Nat, m : Nat) . (Int |2|) |10| -> (Int |2| -> Int) |10| -> Int |10|
+test = (\pin -> (\leak -> |(leak pin)|) leak)
+
+funPush : forall (a : Type, b : Type, n : Nat) . (a -> b) |n|  -> (a |n| -> b |n|)
+funPush |f| |x| = |(f x)|
+
+-- Not possible
+--funPull : forall (a : Type, b : Type, n : Nat) . (a |n| -> b |n|) -> (a -> b) |n|
+--funPull f = |(\x -> let |y| = f |x| in y)|

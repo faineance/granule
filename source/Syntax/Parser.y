@@ -236,14 +236,19 @@ Set :: { [(String, Type)] }
   | VAR ':' Type              { [(symString $1, $3)] }
 
 Effect :: { Effect }
-  : '[' Effs ']'              { $2 }
-  | '[' ']'                   { [] }
+  : '[' Actions ']'           { Actions $2 }
+  | '[' ']'                   { Actions [] }
+  | VAR                       { EVar $ mkId $ symString $1 }
+  | Effect '*' Effect         { ETimes $1 $3 }
+  | Effect '\\' '/' Effect    { EJoin $1 $4 }
+  | INT                       { let TokenInt _ x = $1 in ENat x }
 
-Effs :: { [String] }
-  : Eff ',' Effs              { $1 : $3 }
-  | Eff                       { [$1] }
 
-Eff :: { String }
+Actions :: { [String] }
+  : Action ',' Actions           { $1 : $3 }
+  | Action                       { [$1] }
+
+Action :: { String }
   : CONSTR                    { constrString $1 }
 
 Expr :: { Expr }

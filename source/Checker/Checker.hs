@@ -415,7 +415,7 @@ synthExpr defs gam pol (LetDiamond s p optionalTySig e1 e2) = do
   case sig of
     (TyApp (TyCon con) t')
       | internalName con == "FileIO" || internalName con == "Session" ->
-      typeLetSubject gam1 [] t'
+      typeLetSubject gam1 (Actions []) t'
 
     Diamond ef1 ty1 ->
       typeLetSubject gam1 ef1 ty1
@@ -438,7 +438,7 @@ synthExpr defs gam pol (LetDiamond s p optionalTySig e1 e2) = do
 
             (TyApp (TyCon con) t')
                | internalName con == "FileIO" || internalName con == "Session" ->
-                 typeLetBody gam1 gam2 ef1 [] binders ty1 t'
+                 typeLetBody gam1 gam2 ef1 (Actions []) binders ty1 t'
 
             t -> halt $ GenericError (Just s)
                       $ "Expected an effect type but got ''" ++ pretty t ++ "'"
@@ -448,7 +448,10 @@ synthExpr defs gam pol (LetDiamond s p optionalTySig e1 e2) = do
         gamNew <- ctxPlus s (gam2 `subtractCtxt` binders) gam1
         -- Check linearity of locally bound variables
         case checkLinearity binders gam2 of
-            [] -> return (Diamond (ef1 ++ ef2) ty2, gamNew)
+            [] ->
+              case (ef1, ef2) of
+                (Actions ef1, Actions ef2) -> return (Diamond (Actions $ ef1 ++ ef2) ty2, gamNew)
+                (ef1, ef2) -> return (Diamond (ETimes ef1 ef2) ty2, gamNew)
             xs -> illLinearityMismatch s xs
 -- Variables
 synthExpr defs gam _ (Val s (Var x)) =

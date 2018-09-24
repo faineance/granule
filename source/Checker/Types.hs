@@ -119,13 +119,13 @@ equalTypesRelatedCoeffects s rel uS (TyApp (TyCon con) t) (Diamond ef t') sp
     return (eq, unif)
 
 -- Over approximation by 'Session' "monad"
-equalTypesRelatedCoeffects s rel uS (Diamond ef t) (TyApp (TyCon con) t') sp
+equalTypesRelatedCoeffects s rel uS (Diamond (Actions ef) t) (TyApp (TyCon con) t') sp
        | internalName con == "Session" && ("Com" `elem` ef || null ef) = do
         (eq, unif) <- equalTypesRelatedCoeffects s rel uS t t' sp
         return (eq, unif)
 
 -- Under approximation by 'Session' "monad"
-equalTypesRelatedCoeffects s rel uS (TyApp (TyCon con) t) (Diamond ef t') sp
+equalTypesRelatedCoeffects s rel uS (TyApp (TyCon con) t) (Diamond (Actions ef) t') sp
        | internalName con == "Session" && ("Com" `elem` ef || null ef) = do
         (eq, unif) <- equalTypesRelatedCoeffects s rel uS t t' sp
         return (eq, unif)
@@ -136,16 +136,18 @@ equalTypesRelatedCoeffects s rel uS (Diamond ef t) (Diamond ef' t') sp = do
   if ef == ef'
     then return (eq, unif)
     else
-      -- Effect approximation
-      if (ef `isPrefixOf` ef')
-      then return (eq, unif)
-      else
-        -- Communication effect analysis is idempotent
-        if (nub ef == ["Com"] && nub ef' == ["Com"])
-        then return (eq, unif)
-        else
-          halt $ GradingError (Just s) $
-            "Effect mismatch: " ++ pretty ef ++ " not equal to " ++ pretty ef'
+      case (ef, ef') of
+        (Actions ef, Actions ef') ->
+          -- Effect approximation
+          if (ef `isPrefixOf` ef')
+          then return (eq, unif)
+          else
+            -- Communication effect analysis is idempotent
+            if (nub ef == ["Com"] && nub ef' == ["Com"])
+            then return (eq, unif)
+            else
+              halt $ GradingError (Just s) $
+                "Effect mismatch: " ++ pretty ef ++ " not equal to " ++ pretty ef'
 
 equalTypesRelatedCoeffects s rel uS (Box c t) (Box c' t') sp = do
   -- Debugging messages
@@ -424,13 +426,22 @@ joinTypes s (FunTy t1 t2) (FunTy t1' t2') = do
 
 joinTypes _ (TyCon t) (TyCon t') | t == t' = return (TyCon t)
 
-joinTypes s (Diamond ef t) (Diamond ef' t') = do
+-- 1 v e = e for all effect types e
+joinTypes s (Diamond ef t) (Diamond (EOne _) t') = do
+  tj <- joinTypes s t t'
+  return $ Diamond ef tj
+
+joinTypes s (Diamond (EOne _) t') (Diamond ef t)  = do
+    tj <- joinTypes s t' t
+    return $ Diamond ef tj
+
+joinTypes s (Diamond (Actions ef) t) (Diamond (Actions ef') t') = do
   tj <- joinTypes s t t'
   if ef `isPrefixOf` ef'
-    then return (Diamond ef' tj)
+    then return (Diamond (Actions ef') tj)
     else
       if ef' `isPrefixOf` ef
-      then return (Diamond ef tj)
+      then return (Diamond (Actions ef) tj)
       else halt $ GradingError (Just s) $
         "Effect mismatch: " ++ pretty ef ++ " not equal to " ++ pretty ef'
 

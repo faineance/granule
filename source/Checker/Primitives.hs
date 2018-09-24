@@ -52,8 +52,8 @@ builtins =
   [ (mkId "div", Forall nullSpan []
        (FunTy (TyCon $ mkId "Int") (FunTy (TyCon $ mkId "Int") (TyCon $ mkId "Int"))))
     -- Graded monad unit operation
-  , (mkId "pure", Forall nullSpan [(mkId "a", KType)]
-       $ (FunTy (TyVar $ mkId "a") (Diamond [] (TyVar $ mkId "a"))))
+  , (mkId "pure", Forall nullSpan [(mkId "a", KType), (mkId "e", KConstr $ mkId "Effect")]
+       $ (FunTy (TyVar $ mkId "a") (Diamond (EOne (TyVar $ mkId "e")) (TyVar $ mkId "a"))))
 
     -- String stuff
   , (mkId "stringAppend", Forall nullSpan []
@@ -62,10 +62,10 @@ builtins =
       $ (FunTy (TyCon $ mkId "Char") (TyCon $ mkId "String")))
 
     -- Effectful primitives
-  , (mkId "read", Forall nullSpan [] $ Diamond ["R"] (TyCon $ mkId "String"))
+  , (mkId "read", Forall nullSpan [] $ Diamond (Actions ["R"]) (TyCon $ mkId "String"))
   , (mkId "write", Forall nullSpan [] $
-       FunTy (TyCon $ mkId "String") (Diamond ["W"] (TyCon $ mkId "()")))
-  , (mkId "readInt", Forall nullSpan [] $ Diamond ["R"] (TyCon $ mkId "Int"))
+       FunTy (TyCon $ mkId "String") (Diamond (Actions ["W"]) (TyCon $ mkId "()")))
+  , (mkId "readInt", Forall nullSpan [] $ Diamond (Actions ["R"]) (TyCon $ mkId "Int"))
     -- Other primitives
   , (mkId "intToFloat", Forall nullSpan [] $ FunTy (TyCon $ mkId "Int")
                                                     (TyCon $ mkId "Float"))
@@ -77,51 +77,51 @@ builtins =
   , (mkId "openFile", Forall nullSpan [] $
                         FunTy (TyCon $ mkId "String")
                           (FunTy (TyCon $ mkId "IOMode")
-                                (Diamond ["O"] (TyCon $ mkId "Handle"))))
+                                (Diamond (Actions ["O"]) (TyCon $ mkId "Handle"))))
   , (mkId "hGetChar", Forall nullSpan [] $
                         FunTy (TyCon $ mkId "Handle")
-                               (Diamond ["RW"]
+                               (Diamond (Actions ["RW"])
                                 (TyApp (TyApp (TyCon $ mkId ",")
                                               (TyCon $ mkId "Handle"))
                                        (TyCon $ mkId "Char"))))
   , (mkId "hPutChar", Forall nullSpan [] $
                         FunTy (TyCon $ mkId "Handle")
                          (FunTy (TyCon $ mkId "Char")
-                           (Diamond ["W"] (TyCon $ mkId "Handle"))))
+                           (Diamond (Actions ["W"]) (TyCon $ mkId "Handle"))))
   , (mkId "isEOF", Forall nullSpan [] $
                      FunTy (TyCon $ mkId "Handle")
-                            (Diamond ["R"]
+                            (Diamond (Actions ["R"])
                              (TyApp (TyApp (TyCon $ mkId ",")
                                            (TyCon $ mkId "Handle"))
                                     (TyCon $ mkId "Bool"))))
   , (mkId "hClose", Forall nullSpan [] $
                         FunTy (TyCon $ mkId "Handle")
-                               (Diamond ["C"] (TyCon $ mkId "()")))
+                               (Diamond (Actions ["C"]) (TyCon $ mkId "()")))
     -- protocol typed primitives
   , (mkId "send", Forall nullSpan [(mkId "a", KType), (mkId "s", protocol)]
                   $ ((con "Chan") .@ (((con "Send") .@ (var "a")) .@  (var "s")))
                       .-> ((var "a")
-                        .-> (Diamond ["Com"] ((con "Chan") .@ (var "s")))))
+                        .-> (Diamond (Actions ["Com"]) ((con "Chan") .@ (var "s")))))
 
   , (mkId "recv", Forall nullSpan [(mkId "a", KType), (mkId "s", protocol)]
        $ ((con "Chan") .@ (((con "Recv") .@ (var "a")) .@  (var "s")))
-         .-> (Diamond ["Com"] ((con "," .@ (var "a")) .@ ((con "Chan") .@ (var "s")))))
+         .-> (Diamond (Actions ["Com"]) ((con "," .@ (var "a")) .@ ((con "Chan") .@ (var "s")))))
 
   , (mkId "close", Forall nullSpan [] $
-                    ((con "Chan") .@ (con "End")) .-> (Diamond ["Com"] (con "()")))
+                    ((con "Chan") .@ (con "End")) .-> (Diamond (Actions ["Com"]) (con "()")))
 
   -- fork : (c -> Diamond ()) -> Diamond c'
   , (mkId "fork", Forall nullSpan [(mkId "s", protocol)] $
-                    (((con "Chan") .@ (TyVar $ mkId "s")) .-> (Diamond ["Com"] (con "()")))
+                    (((con "Chan") .@ (TyVar $ mkId "s")) .-> (Diamond (Actions ["Com"]) (con "()")))
                     .->
-                    (Diamond ["Com"] ((con "Chan") .@ ((TyCon $ mkId "Dual") .@ (TyVar $ mkId "s")))))
+                    (Diamond (Actions ["Com"]) ((con "Chan") .@ ((TyCon $ mkId "Dual") .@ (TyVar $ mkId "s")))))
 
    -- forkRep : (c |n| -> Diamond ()) -> Diamond (c' |n|)
   , (mkId "forkRep", Forall nullSpan [(mkId "s", protocol), (mkId "n", KConstr $ mkId "Nat=")] $
                     (Box (CVar $ mkId "n")
-                       ((con "Chan") .@ (TyVar $ mkId "s")) .-> (Diamond ["Com"] (con "()")))
+                       ((con "Chan") .@ (TyVar $ mkId "s")) .-> (Diamond (Actions ["Com"]) (con "()")))
                     .->
-                    (Diamond ["Com"]
+                    (Diamond (Actions ["Com"])
                        (Box (CVar $ mkId "n")
                          ((con "Chan") .@ ((TyCon $ mkId "Dual") .@ (TyVar $ mkId "s"))))))
   ]

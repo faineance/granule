@@ -10,6 +10,7 @@
 module Syntax.Pretty where
 
 import Data.List
+import Syntax.Identifiers
 import Syntax.Expr
 import Utils
 
@@ -41,8 +42,6 @@ instance {-# OVERLAPPABLE #-} Pretty a => Pretty [a] where
 
 -- Core pretty printers
 
-instance {-# OVERLAPS #-} Pretty Effect where
-   pretty es = "[" ++ intercalate "," es ++ "]"
 
 instance Pretty Coeffect where
     pretty (CNat Ordered n) = show n
@@ -69,6 +68,14 @@ instance Pretty Coeffect where
     pretty (CSig c t) = "(" ++ pretty c ++ " : " ++ pretty t ++ ")"
     pretty (CInfinity (TyVar kv)) | internalName kv == "infinity" = "∞"
     pretty (CInfinity k) = "∞ : " ++ pretty k
+
+instance Pretty Effect where
+  pretty (Actions as) = "[" ++ intercalate "," as ++ "]"
+  pretty (EVar x) = pretty x
+  pretty (EOne t) = "_1 : " ++ pretty t
+  pretty (ETimes e1 e2) = pretty e1 ++ "." ++ pretty e2
+  pretty (EJoin e1 e2) = pretty e1 ++ "\\/" ++ pretty e2
+  pretty (ENat n) = show n
 
 instance Pretty Kind where
     pretty KType          = "Type"

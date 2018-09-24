@@ -10,7 +10,7 @@ module Syntax.Expr
   (AST(..), Value(..), Expr(..), Type(..), TypeScheme(..), Nat,
   letBox, valExpr,
   Def(..), DataDecl(..), Pattern(..), Coeffect(..),
-  NatModifier(..), Effect, Kind(..), DataConstr(..), Cardinality,
+  NatModifier(..), Effect(..), Kind(..), DataConstr(..), Cardinality,
   Id(..), mkId,
   Operator,
   arity, freeVars, subst, freshen, Freshener, freshenAST,
@@ -594,7 +594,14 @@ data Kind = KType
           | KPromote Type        -- Promoted types
     deriving (Show, Ord, Eq)
 
-type Effect = [String]
+data Effect =
+     Actions [String]
+   | EVar Id
+   | EOne Type
+   | ETimes Effect Effect
+   | EJoin  Effect Effect
+   | ENat Int
+   deriving (Show, Ord, Eq)
 
 data Coeffect = CNat      NatModifier Int
               | CNatOmega (Either () Int)

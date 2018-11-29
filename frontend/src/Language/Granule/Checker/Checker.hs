@@ -35,7 +35,7 @@ import Language.Granule.Syntax.Span
 import Language.Granule.Syntax.Type
 import Language.Granule.Utils
 
---import Debug.Trace
+import Debug.Trace
 
 data CheckerResult = Failed | Ok deriving (Eq, Show)
 
@@ -149,8 +149,17 @@ checkDef defCtxt (Def s defName expr pats tys@(Forall _ foralls ty)) = do
 
           -- Check the body in the context given by the pattern matching
           (outGam, _, elaboratedExpr) <- checkExpr defCtxt patternGam Positive True ty' expr
+
+          st <- get
+          debugM "*** pred at end of checking def" (pretty (predicateStack st))
+          debugM "*** (outGam, patternGam)" (pretty (outGam, patternGam))
+
+
           -- Check that the outgoing context is a subgrading of the incoming
           ctxtEquals s outGam patternGam
+
+          st <- get
+          debugM "*** pred at end of checking def" (pretty (predicateStack st))
 
           -- Check linear use
           case checkLinearity patternGam outGam of
@@ -302,12 +311,14 @@ checkExpr defs gam pol True tau (Case s _ guardExpr cases) = do
   (guardTy, guardGam, elaboratedGuard) <- synthExpr defs gam pol guardExpr
   pushGuardContext guardGam
 
+  debugM "*** Checking case branches " ""
+
   -- Check each of the branches
   branchCtxtsAndSubst <-
     forM cases $ \(pat_i, e_i) -> do
       -- Build the binding context for the branch pattern
       newConjunct
-      (patternGam, eVars, subst, elaborated_pat_i) <- ctxtFromTypedPattern s guardTy pat_i
+      (patternGam, eVars, subst, elaborated_pat_i) <- (pretty guardTy) `trace` ctxtFromTypedPattern s guardTy pat_i
 
       -- Checking the case body
       newConjunct
@@ -320,8 +331,11 @@ checkExpr defs gam pol True tau (Case s _ guardExpr cases) = do
       (localGam, subst', elaborated_i) <- checkExpr defs checkGam pol False tau' e_i
 
       -- We could do this, but it seems redundant.
-      -- localGam' <- ctxPlus s guardGam localGam
-      -- ctxtApprox s localGam' checkGam
+      liftIO $ putStrLn $ "localGam = " ++ pretty localGam
+      liftIO $ putStrLn $ "checkGam = " ++ pretty checkGam
+
+      localGam' <- ctxPlus s localGam guardGam
+      ctxtEquals s localGam' checkGam
 
       -- Check linear use in anything Linear
       case checkLinearity patternGam localGam of
@@ -330,14 +344,18 @@ checkExpr defs gam pol True tau (Case s _ guardExpr cases) = do
         [] -> do
            -- Conclude the implication
            concludeImplication eVars
+           st <- get
+           debugM "*** pred so far" (pretty (predicateStack st))
 
            -- The resulting context has the shared part removed
            -- 28/02/2018 - We used to have this
            --let branchCtxt = (localGam `subtractCtxt` guardGam) `subtractCtxt` specialisedGam
            -- But we want promotion to invovlve the guard to avoid leaks
-           let branchCtxt = (localGam `subtractCtxt` specialisedGam) `subtractCtxt` patternGam
-           -- Probably don't want to remove specialised things in this way- we want to
-           -- invert the substitution and put these things into the context
+           -- 29/11/2018 changed
+           -- let branchCtxt = (localGam `subtractCtxt` specialisedGam) `subtractCtxt` patternGam
+           -- -- Probably don't want to remove specialised things in this way- we want to
+           -- -- invert the substitution and put these things into the context
+           let branchCtxt = (unsubstitute subst localGam) `subtractCtxt` patternGam
 
            return (branchCtxt, subst', (elaborated_pat_i, elaborated_i))
 
@@ -357,6 +375,10 @@ checkExpr defs gam pol True tau (Case s _ guardExpr cases) = do
 
   debugM "--- Output context for case " (pretty g)
   let elaborated = Case s tau elaboratedGuard elaboratedCases
+
+  st <- get
+  debugM "*** pred at end of case" (pretty (predicateStack st))
+
   return (g, concat substs, elaborated)
 
 -- All other expressions must be checked using synthesis
@@ -744,9 +766,40 @@ ctxtApprox s ctxt1 ctxt2 = do
 ctxtEquals :: (?globals :: Globals) => Span -> Ctxt Assumption -> Ctxt Assumption
   -> MaybeT Checker ()
 ctxtEquals s ctxt1 ctxt2 = do
+  -- intersection contains those ids from ctxt1 which appears in ctxt2
+  intersection <-
+    -- For everything in the right context
+    -- (which should come as an input to checking)
+    forM ctxt2 $ \(id, ass2) ->
+      -- See if it appears in the left context...
+      case lookup id ctxt1 of
+        -- ... if so equate
+        Just ass1 -> do
+          relateByAssumption s Eq (id, ass1) (id, ass2)
+          return id
+        -- ... if not check to see if the missing variable is linear
+        Nothing   ->
+          case ass2 of
+            -- Linear gets instantly reported
+            Linear t -> illLinearityMismatch s [LinearNotUsed id]
+            -- Else, this could be due to weakening so see if this is allowed
+            Discharged t c -> do
+              kind <- inferCoeffectType s c
+              relateByAssumption s Eq (id, Discharged t (CZero kind)) (id, ass2)
+              return id
+  -- Last we sanity check, if there is anything in ctxt1 that is not in ctxt2
+  -- then we have an issue!
+  forM_ ctxt1 $ \(id, ass1) ->
+    if (id `elem` intersection)
+      then return ()
+      else halt $ UnboundVariableError (Just s) $
+                "Variable `" <> pretty id <> "` was used but is not bound here"
+
+{-
     let ctxt  = ctxt1 `intersectCtxts` ctxt2
         ctxt' = ctxt2 `intersectCtxts` ctxt1
     zipWithM_ (relateByAssumption s Eq) ctxt ctxt'
+-}
 
 {- | Take the least-upper bound of two contexts.
      If one context contains a linear variable that is not present in

@@ -51,6 +51,9 @@ class Substitutable t where
   substitute :: (?globals :: Globals)
              => Substitution -> t -> MaybeT Checker t
 
+  unsubstitute :: (?globals :: Globals)
+             => Substitution -> t -> MaybeT Checker t
+
 --  invertSubstitute :: (?globals :: Globals)
 --             => Substitution -> t -> MaybeT Checker t
 

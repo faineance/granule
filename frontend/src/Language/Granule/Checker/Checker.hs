@@ -356,7 +356,7 @@ checkExpr defs gam pol True tau (Case s _ guardExpr cases) = do
            -- let branchCtxt = (localGam `subtractCtxt` specialisedGam) `subtractCtxt` patternGam
            -- -- Probably don't want to remove specialised things in this way- we want to
            -- -- invert the substitution and put these things into the context
-           debugM "*** unsubstitute" "" 
+           debugM "*** unsubstitute" ""
            unsubstLocalGam <- unsubstitute subst localGam
 
            let branchCtxt = unsubstLocalGam `subtractCtxt` patternGam

@@ -45,7 +45,7 @@ data Substitutor =
   | SubstE  Effect
   deriving (Eq, Show)
 
-instance Pretty Substitutors where
+instance Pretty Substitutor where
   prettyL l (SubstT t) = "->" <> prettyL l t
   prettyL l (SubstC c) = "->" <> prettyL l c
   prettyL l (SubstK k) = "->" <> prettyL l k

@@ -3,6 +3,7 @@
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Language.Granule.Checker.Substitutions where
 
@@ -19,6 +20,8 @@ import Language.Granule.Syntax.Type
 import Language.Granule.Checker.Kinds
 import Language.Granule.Checker.Monad
 import Language.Granule.Checker.Predicates
+import Language.Granule.Checker.Variables (freshCoeffectVarWithBinding, freshVar)
+
 import Control.Monad.Trans.Maybe
 import Language.Granule.Utils
 
@@ -26,6 +29,7 @@ import Language.Granule.Utils
 -- $setup
 -- >>> import Language.Granule.Syntax.Identifiers (mkId)
 -- >>> import Language.Granule.Syntax.Pattern
+-- >>> import Language.Granule.TestUtils
 -- >>> :set -XImplicitParams
 
 {-| Substitutions map from variables to type-level things as defined by
@@ -41,11 +45,11 @@ data Substitutor =
   | SubstE  Effect
   deriving (Eq, Show)
 
-instance Pretty Substitutor where
-  pretty (SubstT t) = "->" <> pretty t
-  pretty (SubstC c) = "->" <> pretty c
-  pretty (SubstK k) = "->" <> pretty k
-  pretty (SubstE e) = "->" <> pretty e
+instance Pretty Substitutors where
+  prettyL l (SubstT t) = "->" <> prettyL l t
+  prettyL l (SubstC c) = "->" <> prettyL l c
+  prettyL l (SubstK k) = "->" <> prettyL l k
+  prettyL l (SubstE e) = "->" <> prettyL l e
 
 invertedLookup :: (Eq t, Substitutable t) => Substitution -> t -> Maybe Id
 invertedLookup subst x =
@@ -116,7 +120,7 @@ instance Substitutable Substitutor where
     k <- inferKindOfType nullSpan t
     k' <- inferCoeffectType nullSpan c'
     case joinKind k (KPromote k') of
-      Just (KConstr k) | internalName k == "Nat" -> do
+      Just (KPromote (TyCon k)) | internalName k == "Nat" -> do
              c <- compileNatKindedTypeToCoeffect nullSpan t
              unify c c'
       _ -> return Nothing
@@ -225,7 +229,7 @@ instance Substitutable Type where
     k <- inferKindOfType nullSpan t
     k' <- inferKindOfType nullSpan t
     case joinKind k k' of
-      Just (KConstr k) | internalName k == "Nat" -> do
+      Just (KPromote (TyCon (internalName -> "Nat"))) -> do
         c  <- compileNatKindedTypeToCoeffect nullSpan t
         c' <- compileNatKindedTypeToCoeffect nullSpan t'
         addConstraint $ Eq nullSpan c c' (TyCon $ mkId "Nat")
@@ -291,10 +295,8 @@ instance Substitutable Coeffect where
           k <- inferKindOfType nullSpan t
           k' <- inferCoeffectType nullSpan (CVar v)
           case joinKind k (promoteTypeToKind k') of
-            Just (KConstr k) ->
-              case internalName k of
-                "Nat" -> compileNatKindedTypeToCoeffect nullSpan t
-                _      -> return (CVar v)
+            Just (KPromote (TyCon (internalName -> "Nat"))) ->
+              compileNatKindedTypeToCoeffect nullSpan t
             _ -> return (CVar v)
 
         _               -> return $ CVar v
@@ -490,7 +492,6 @@ instance Substitutable Kind where
     case lookup v subst of
       Just (SubstK k) -> return k
       _               -> return $ KVar v
-  substitute subst (KConstr c) = return $ KConstr c
 
   invertSubstitutor (SubstK k) = Just k
   invertSubstitutor _ = Nothing
@@ -677,8 +678,8 @@ freshPolymorphicInstance quantifier (Forall s kinds ty) = do
                  -- Label fresh variable as an existential
                  modify (\st -> st { tyVarContext = (var', (k, quantifier)) : tyVarContext st })
                  return var'
-               KConstr c -> freshCoeffectVarWithBinding var (TyCon c) quantifier
-               KPromote _ -> error "Promoted coeffect types not yet supported"
+               KPromote (TyCon c) -> freshCoeffectVarWithBinding var (TyCon c) quantifier
+               KPromote _ -> error "Arbirary promoted types not yet supported"
                KCoeffect -> error "Coeffect kind variables not yet supported"
                KVar _ -> error "Tried to instantiate a polymorphic kind. This is not supported yet.\
                \ Please open an issue with a snippet of your code at https://github.com/dorchard/granule/issues"

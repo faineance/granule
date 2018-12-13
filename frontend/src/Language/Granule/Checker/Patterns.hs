@@ -12,6 +12,8 @@ import Language.Granule.Checker.Monad
 import Language.Granule.Checker.Predicates
 import Language.Granule.Checker.Kinds
 import Language.Granule.Checker.Substitutions
+import Language.Granule.Checker.Variables
+
 import Language.Granule.Context
 import Language.Granule.Syntax.Identifiers
 import Language.Granule.Syntax.Pattern
@@ -66,7 +68,8 @@ ctxtFromTypedPattern s t@(Box coeff ty) (PBox sp _ p) = do
 
     -- Check whether a unification was caused
     when (definitelyUnifying p)
-        $ addConstraintToPreviousFrame $ ApproximatedBy s (COne k) coeff k
+         -- $ addConstraintToPreviousFrame $ ApproximatedBy s (COne k) coeff k
+         $ addConstraintToPreviousFrame $ Neq s (CZero k) coeff k
 
     -- Discharge all variables bound by the inner pattern
     let elabP = PBox sp t elabPinner
@@ -161,7 +164,7 @@ ctxtFromTypedPatterns s (FunTy t1 t2) (pat:pats) = do
   if pIrrefutable then do
     (localGam', ty, elabPs) <- ctxtFromTypedPatterns s t2 pats
     return (localGam <> localGam', ty, elabP : elabPs)
-    
+
   else refutablePattern s pat
 
 ctxtFromTypedPatterns s ty ps = do

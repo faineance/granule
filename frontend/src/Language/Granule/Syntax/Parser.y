@@ -174,13 +174,18 @@ VarSigs :: { [(Id, Kind)] }
 VarSig :: { (Id, Kind) }
   : VAR ':' Kind              { (mkId $ symString $1, $3) }
 
+
 Kind :: { Kind }
   : Kind '->' Kind            { KFun $1 $3 }
   | VAR                       { KVar (mkId $ symString $1) }
   | CONSTR                    { case constrString $1 of
                                   "Type"     -> KType
                                   "Coeffect" -> KCoeffect
-                                  s          -> KConstr $ mkId s }
+                                  s          -> kConstr $ mkId s }
+  | '(' TyJuxt TyAtom ')'     { KPromote (TyApp $2 $3) }
+  | TyJuxt TyAtom             { KPromote (TyApp $1 $2) }
+
+
 Type :: { Type }
   : TyJuxt                    { $1 }
   | Type '->' Type            { FunTy $1 $3 }
@@ -210,12 +215,12 @@ TyParams :: { [Type] }
 
 Coeffect :: { Coeffect }
   : INT                         { let TokenInt _ x = $1 in CNat x }
-  | '∞'                         { infiniteUsage }
+  | '∞'                         { infinity }
   | FLOAT                       { let TokenFloat _ x = $1 in CFloat $ myReadFloat x }
   | CONSTR                      { case (constrString $1) of
                                     "Public" -> Level 0
                                     "Private" -> Level 1
-                                    "Inf" -> infiniteUsage
+                                    "Inf" -> infinity
                                     x -> error $ "Unknown coeffect constructor `" <> x <> "`" }
   | VAR                         { CVar (mkId $ symString $1) }
   | Coeffect ".." Coeffect      { CInterval $1 $3 }

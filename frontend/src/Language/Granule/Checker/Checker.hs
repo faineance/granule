@@ -24,6 +24,7 @@ import Language.Granule.Checker.Predicates
 import qualified Language.Granule.Checker.Primitives as Primitives
 import Language.Granule.Checker.Substitutions
 import Language.Granule.Checker.Types
+import Language.Granule.Checker.Variables
 import Language.Granule.Context
 
 import Language.Granule.Syntax.Identifiers
@@ -610,6 +611,8 @@ synthExpr defs gam pol (Val s _ (Promote _ e)) = do
 
    -- Create a fresh kind variable for this coeffect
    vark <- freshVar $ "kprom_" <> [head (pretty e)]
+   -- remember this new kind variable in the kind environment
+   modify (\st -> st { kVarContext = (mkId vark, KCoeffect) : kVarContext st })
 
    -- TODO: note that this does not of the specil hanlding that happens with Level
 
@@ -692,7 +695,8 @@ solveConstraints predicate s defName = do
     ctxtCkVar = kVarContext checkerState
     coeffectVars = justCoeffectTypesConverted checkerState ctxtCk
     coeffectKVars = justCoeffectTypesConvertedVars checkerState ctxtCkVar
-    (sbvTheorem, _, unsats) = compileToSBV predicate coeffectVars coeffectKVars
+
+  let (sbvTheorem, _, unsats) = compileToSBV predicate coeffectVars coeffectKVars
 
   ThmResult thmRes <- liftIO . prove $ do -- proveWith defaultSMTCfg {verbose=True}
     case solverTimeoutMillis ?globals of
@@ -742,11 +746,6 @@ solveConstraints predicate s defName = do
              Just (KCoeffect,_) -> Just (var, (TyCon constr, q))
              _                  -> Nothing
 
-       convert (var, (KConstr constr, q)) =
-           -- TODO: look into removing this case
-           case lookup (constr) (typeConstructors checkerState) of
-             Just (KCoeffect,_) -> Just (var, (TyCon constr, q))
-             _                  -> Nothing
        --convert (var, (KPromote (TyVar v), q)) = Just (var, (TyVar v, q))
        -- TODO: currently all poly variables are treated as kind 'Coeffect'
        -- but this need not be the case, so this can be generalised
@@ -951,12 +950,6 @@ ctxPlus _ [] ctxt2 = return ctxt2
 ctxPlus s ((i, v) : ctxt1) ctxt2 = do
   ctxt' <- extCtxt s ctxt2 i v
   ctxPlus s ctxt1 ctxt'
-
--- Erase a variable from the context
-eraseVar :: Ctxt Assumption -> Id -> Ctxt Assumption
-eraseVar [] _ = []
-eraseVar ((var, t):ctxt) var' | var == var' = ctxt
-                             | otherwise = (var, t) : eraseVar ctxt var'
 
 -- ExtCtxt the context
 extCtxt :: (?globals :: Globals) => Span -> Ctxt Assumption -> Id -> Assumption

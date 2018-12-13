@@ -46,10 +46,10 @@ data Kind = KType
           | KCoeffect
           | KFun Kind Kind
           | KVar Id              -- Kind poly variable
-          -- TODO: merge KType and KCoeffect into KConstr
-          | KConstr Id           -- constructors
           | KPromote Type        -- Promoted types
     deriving (Show, Ord, Eq)
+
+kConstr = KPromote . TyCon
 
 -- | Represents coeffect grades
 data Coeffect = CNat      Int
@@ -71,7 +71,7 @@ data Coeffect = CNat      Int
 
 nat = TyCon $ mkId "Nat"
 extendedNat = TyApp (TyCon $ mkId "Ext") (TyCon $ mkId "Nat")
-infiniteUsage = CInterval (CZero extendedNat) (CInfinity (Just extendedNat))
+infinity = CInfinity (Just extendedNat)
 
 isInterval :: Type -> Maybe Type
 isInterval (TyApp (TyCon c) t) | internalName c == "Interval" = Just t
@@ -135,7 +135,7 @@ mTyInfix op x y  = return (TyInfix op x y)
 -- Monadic algebra for types
 data TypeFold m a = TypeFold
   { tfFunTy   :: a -> a        -> m a
-  , tfTyCon   :: Id -> m a
+  , tfTyCon   :: Id            -> m a
   , tfBox     :: Coeffect -> a -> m a
   , tfDiamond :: Effect -> a   -> m a
   , tfTyVar   :: Id            -> m a
@@ -227,7 +227,7 @@ instance Freshenable Type where
       -- Rewrite type aliases of Box
       rewriteTyApp t1@(TyCon ident) t2
         | internalName ident == "Box" || internalName ident == "◻" =
-          return $ Box infiniteUsage t2
+          return $ Box (CInterval (CZero extendedNat) infinity) t2
       rewriteTyApp t1 t2 = return $ TyApp t1 t2
 
       freshenTyBox c t = do
@@ -299,16 +299,21 @@ instance Freshenable Coeffect where
 --   None of this is stricly necessary but it improves type errors
 --   and speeds up some constarint solving.
 normalise :: Coeffect -> Coeffect
-normalise (CPlus (CZero _) n) = n
-normalise (CPlus n (CZero _)) = n
-normalise (CTimes (COne _) n) = n
-normalise (CTimes n (COne _)) = n
+normalise (CPlus (CZero _) n) = normalise n
+normalise (CPlus n (CZero _)) = normalise n
+normalise (CTimes (COne _) n) = normalise n
+normalise (CTimes n (COne _)) = normalise n
 normalise (COne (TyCon (Id _ "Nat"))) = CNat 1
 normalise (CZero (TyCon (Id _ "Nat"))) = CNat 0
 normalise (COne (TyCon (Id _ "Level"))) = Level 1
 normalise (CZero (TyCon (Id _ "Level"))) = Level 0
 normalise (COne (TyCon (Id _ "Q"))) = CFloat 1
 normalise (CZero (TyCon (Id _ "Q"))) = CFloat 0
+normalise (COne (TyApp (TyCon (Id "Interval" "Interval")) t)) =
+    (CInterval (normalise (COne t)) (normalise (COne t)))
+normalise (CZero (TyApp (TyCon (Id "Interval" "Interval")) t)) =
+        (CInterval (normalise (CZero t)) (normalise (CZero t)))
+
 normalise (CPlus (Level n) (Level m)) = Level (n `max` m)
 normalise (CTimes (Level n) (Level m)) = Level (n `min` m)
 normalise (CPlus (CFloat n) (CFloat m)) = CFloat (n + m)
@@ -333,4 +338,5 @@ normalise (CSig (CZero _)  k) = CZero k
 normalise (CSig (CNat 1) k) = COne k
 normalise (CSig (COne _)   k) = CZero k
 normalise (CSig (CInfinity _)  k) = CInfinity (Just k)
+
 normalise c = c

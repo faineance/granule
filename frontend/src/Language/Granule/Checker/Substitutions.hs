@@ -8,6 +8,7 @@ module Language.Granule.Checker.Substitutions where
 
 import Control.Monad
 import Control.Monad.State.Strict
+import Data.Maybe (mapMaybe, catMaybes)
 
 import Language.Granule.Context
 import Language.Granule.Syntax.Identifiers
@@ -29,22 +30,29 @@ import Language.Granule.Utils
 
 {-| Substitutions map from variables to type-level things as defined by
     substitutors -}
-type Substitution = Ctxt Substitutors
+type Substitution = Ctxt Substitutor
 
-{-| Substitutors are things we want to substitute in... they may be one
+{-| Substitutor are things we want to substitute in... they may be one
      of several things... -}
-data Substitutors =
+data Substitutor =
     SubstT  Type
   | SubstC  Coeffect
   | SubstK  Kind
   | SubstE  Effect
   deriving (Eq, Show)
 
-instance Pretty Substitutors where
+instance Pretty Substitutor where
   pretty (SubstT t) = "->" <> pretty t
   pretty (SubstC c) = "->" <> pretty c
   pretty (SubstK k) = "->" <> pretty k
   pretty (SubstE e) = "->" <> pretty e
+
+invertedLookup :: (Eq t, Substitutable t) => Substitution -> t -> Maybe Id
+invertedLookup subst x =
+  lookup x invertedSubst
+   where
+     invertedSubst =
+      mapMaybe (\(v, s) -> invertSubstitutor s >>= \y -> return (y, v)) subst
 
 class Substitutable t where
   -- | Rewrite a 't' using a substitution
@@ -54,15 +62,14 @@ class Substitutable t where
   unsubstitute :: (?globals :: Globals)
              => Substitution -> t -> MaybeT Checker t
 
---  invertSubstitute :: (?globals :: Globals)
---             => Substitution -> t -> MaybeT Checker t
+  invertSubstitutor :: Substitutor -> Maybe t
 
   unify :: (?globals :: Globals)
         => t -> t -> MaybeT Checker (Maybe Substitution)
 
 -- Instances for the main representation of things in the types
 
-instance Substitutable Substitutors where
+instance Substitutable Substitutor where
 
   substitute subst s =
     case s of
@@ -82,6 +89,27 @@ instance Substitutable Substitutors where
         e <- substitute subst e
         return $ SubstE e
 
+  unsubstitute subst s =
+   case s of
+     SubstT t -> do
+       t <- unsubstitute subst t
+       return $ SubstT t
+
+     SubstC c -> do
+       c <- unsubstitute subst c
+       return $ SubstC c
+
+     SubstK k -> do
+       k <- unsubstitute subst k
+       return $ SubstK k
+
+     SubstE e -> do
+       e <- unsubstitute subst e
+       return $ SubstE e
+
+  -- There is no substitutor of a substitutor, so always false
+  invertSubstitutor _ = Nothing
+
   unify (SubstT t) (SubstT t') = unify t t'
   unify (SubstT t) (SubstC c') = do
     -- We can unify a type with a coeffect, if the type is actually a Nat
@@ -100,10 +128,28 @@ instance Substitutable Substitutors where
 
 instance Substitutable Type where
   substitute subst = typeFoldM (baseTypeFold
-                              { tfTyVar = varSubst
+                              { tfFunTy = funSubst
+                              , tfTyApp = appSubst
+                              , tfTyVar = varSubst
                               , tfBox = box
-                              , tfDiamond = dia })
+                              , tfDiamond = dia
+                              , tfTyInfix = infixSubst })
     where
+      funSubst t1 t2 = do
+        t1 <- substitute subst t1
+        t2 <- substitute subst t2
+        mFunTy t1 t2
+
+      appSubst t1 t2 = do
+          t1 <- substitute subst t1
+          t2 <- substitute subst t2
+          mTyApp t1 t2
+
+      infixSubst o t1 t2 = do
+          t1 <- substitute subst t1
+          t2 <- substitute subst t2
+          mTyInfix o t1 t2
+
       box c t = do
         c <- substitute subst c
         t <- substitute subst t
@@ -118,6 +164,42 @@ instance Substitutable Type where
          case lookup v subst of
            Just (SubstT t) -> return t
            _               -> mTyVar v
+
+  invertSubstitutor (SubstT t) = Just t
+  invertSubstitutor _ = Nothing
+
+  unsubstitute subst t =
+      case invertedLookup subst t of
+        Nothing -> unsubstituteRecurse t
+        Just v  -> return $ TyVar v
+    where
+      unsubstituteRecurse (FunTy t1 t2) = do
+        t1 <- unsubstitute subst t1
+        t2 <- unsubstitute subst t2
+        mFunTy t1 t2
+
+      unsubstituteRecurse (TyApp t1 t2) = do
+          t1 <- unsubstitute subst t1
+          t2 <- unsubstitute subst t2
+          mTyApp t1 t2
+
+      unsubstituteRecurse (TyInfix o t1 t2) = do
+          t1 <- unsubstitute subst t1
+          t2 <- unsubstitute subst t2
+          mTyInfix o t1 t2
+
+      unsubstituteRecurse (Box c t) = do
+        c <- unsubstitute subst c
+        t <- unsubstitute subst t
+        mBox c t
+
+      unsubstituteRecurse (Diamond e t) = do
+        e <- unsubstitute subst e
+        t <- unsubstitute subst t
+        mDiamond e t
+
+      unsubstituteRecurse t = return t
+
 
   unify (TyVar v) t = return $ Just [(v, SubstT t)]
   unify t (TyVar v) = return $ Just [(v, SubstT t)]
@@ -242,6 +324,77 @@ instance Substitutable Coeffect where
   substitute _ c@CFloat{}    = return c
   substitute _ c@Level{}     = return c
 
+  invertSubstitutor (SubstC c) = Just c
+  invertSubstitutor _ = Nothing
+
+  unsubstitute subst c = do
+     subst' <- mapM invertTypeToCoeffect subst
+     unsubstituteC (catMaybes subst') c
+    where
+      unsubstituteC substC c =
+        -- See if we can convert a coeffect back to a var
+        case invertedLookup subst c of
+          Just v -> return $ CVar v
+          Nothing ->
+            -- See if there is a coeffet which has come from a translated type
+            case lookup c substC of
+              Just v -> return $ CVar v
+              Nothing -> unsubstituteRecurse substC c
+
+
+      invertTypeToCoeffect (v, SubstT t) = do
+            c <- compileNatKindedTypeToCoeffect nullSpan t
+            return (Just (c, v))
+      invertTypeToCoeffect _ =
+            return Nothing
+
+      unsubstituteRecurse substC (CInterval c1 c2)  = do
+        c1 <- unsubstituteC substC c1
+        c2 <- unsubstituteC substC c2
+        return $ CInterval c1 c2
+
+      unsubstituteRecurse substC (CPlus c1 c2) = do
+        c1 <- unsubstituteC substC c1
+        c2 <- unsubstituteC substC c2
+        return $ CPlus c1 c2
+
+      unsubstituteRecurse substC (CTimes c1 c2) = do
+          c1 <- unsubstituteC substC c1
+          c2 <- unsubstituteC substC c2
+          return $ CTimes c1 c2
+
+      unsubstituteRecurse substC (CMeet c1 c2) = do
+          c1 <- unsubstituteC substC c1
+          c2 <- unsubstituteC substC c2
+          return $ CMeet c1 c2
+
+      unsubstituteRecurse substC (CZero t) = do
+          t <- unsubstitute subst t
+          return $ CZero t
+
+      unsubstituteRecurse substC (COne t) = do
+          t <- unsubstitute subst t
+          return $ COne t
+
+      unsubstituteRecurse substC (CSet tys) = do
+          tys <- mapM (\(v, t) -> do
+                          t <- unsubstitute subst t
+                          return (v, t)) tys
+          return $ CSet tys
+
+      unsubstituteRecurse substC (CSig c t) = do
+          c <- unsubstituteC substC c
+          t <- unsubstitute subst t
+          return $ CSig c t
+
+      unsubstituteRecurse substC (CExpon c1 c2) = do
+          c1 <- unsubstituteC substC c1
+          c2 <- unsubstituteC substC c2
+          return $ CExpon c1 c2
+
+      unsubstituteRecurse _ c = return c
+
+
   unify (CVar v) c = do
     checkerState <- get
     case lookup v (tyVarContext checkerState) of
@@ -316,6 +469,11 @@ instance Substitutable Effect where
     if e == e' then return $ Just []
                else return $ Nothing
 
+  invertSubstitutor (SubstE e) = Just e
+  invertSubstitutor _ = Nothing
+
+  unsubstitute _ t = return t
+
 instance Substitutable Kind where
 
   substitute subst (KPromote t) = do
@@ -334,6 +492,20 @@ instance Substitutable Kind where
       _               -> return $ KVar v
   substitute subst (KConstr c) = return $ KConstr c
 
+  invertSubstitutor (SubstK k) = Just k
+  invertSubstitutor _ = Nothing
+
+  unsubstitute subst k =
+      case invertedLookup subst k of
+        Nothing -> unsubstituteRecurse k
+        Just v -> return $ KVar v
+    where
+       unsubstituteRecurse (KFun k1 k2) = do
+         k1 <- unsubstitute subst k1
+         k2 <- unsubstitute subst k2
+         return $ KFun k1 k2
+       unsubstituteRecurse k = return k
+
   unify (KVar v) k =
     return $ Just [(v, SubstK k)]
   unify k (KVar v) =
@@ -350,6 +522,11 @@ instance Substitutable t => Substitutable (Maybe t) where
   unify Nothing _ = return (Just [])
   unify _ Nothing = return (Just [])
   unify (Just x) (Just y) = unify x y
+
+  unsubstitute s (Just t) = unsubstitute s t >>= return . Just
+  unsubstitute s Nothing = return Nothing
+
+  invertSubstitutor _ = Nothing
 
 
 -- | Combine substitutions wrapped in Maybe
@@ -408,6 +585,19 @@ instance Substitutable (Ctxt Assumption) where
     return (ctxt0 <> ctxt1)
 
   unify = error "Unify not implemented for contexts"
+
+  invertSubstitutor _ = Nothing
+
+  unsubstitute subst ctxt = do
+    mapM (unsubst subst) ctxt
+    where
+      unsubst subst (v, Linear t) = do
+        t <- unsubstitute subst t
+        return (v, Linear t)
+      unsubst subst (v, Discharged t c) = do
+        t <- unsubstitute subst t
+        c <- unsubstitute subst c
+        return (v, Discharged t c)
 
 substCtxt :: (?globals :: Globals) => Substitution -> Ctxt Assumption
   -> MaybeT Checker (Ctxt Assumption, Ctxt Assumption)

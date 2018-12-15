@@ -32,6 +32,7 @@ import Language.Granule.Syntax.Parser
 import Language.Granule.Syntax.Lexer
 import Language.Granule.Syntax.Span
 import Language.Granule.Checker.Checker
+import Language.Granule.Checker.Substitutions
 import qualified Language.Granule.Checker.Primitives as Primitives
 import Language.Granule.Eval
 import Language.Granule.Context
@@ -186,7 +187,7 @@ buildForEval :: [Id] -> M.Map String (Def () (), [String]) -> [Def () ()]
 buildForEval [] _ = []
 buildForEval (x:xs) m = buildAST (sourceName x) m <> buildForEval xs m
 
-synType :: (?globals::Globals) => Expr () () -> Ctxt TypeScheme -> Mo.CheckerState -> IO (Maybe (Type, Ctxt Mo.Assumption, Expr () Type))
+synType :: (?globals::Globals) => Expr () () -> Ctxt TypeScheme -> Mo.CheckerState -> IO (Maybe (Type, Ctxt Mo.Assumption, Substitution, Expr () Type))
 synType exp [] cs = liftIO $ Mo.evalChecker cs $ runMaybeT $ synthExpr empty empty Positive exp
 synType exp cts cs = liftIO $ Mo.evalChecker cs $ runMaybeT $ synthExpr cts empty Positive exp
 
@@ -197,7 +198,7 @@ synTypeBuilder exp ast adt = do
   ty <- liftIO $ synType exp ((buildCtxtTS ast) <> ddts) cs
   --liftIO $ print $ show ty
   case ty of
-    Just (t,a,_) -> return t
+    Just (t,a,_,_) -> return t
     Nothing -> Ex.throwError OtherError'
 
 
@@ -359,7 +360,7 @@ handleCMD s =
                     [] -> do -- simple expressions
                         typ <- liftIO $ synType exp [] Mo.initState
                         case typ of
-                            Just (t,a, _) -> return ()
+                            Just (t,a,_,_) -> return ()
                             Nothing -> Ex.throwError (TypeCheckError ev)
                         result <- liftIO' $ try $ evalIn builtIns (toRuntimeRep exp)
                         case result of

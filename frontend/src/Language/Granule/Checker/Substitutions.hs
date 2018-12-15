@@ -519,6 +519,17 @@ xs <<>> ys =
          combineSubstitutions nullSpan xs' ys' >>= (return . Just)
     _ -> return Nothing
 
+combineManySubstitutions :: (?globals :: Globals)
+   => Span -> [Substitution] -> MaybeT Checker Substitution
+combineManySubstitutions _ [] = return []
+combineManySubstitutions _ [s] = return s
+combineManySubstitutions s (s1:s2:ss) = do
+  s' <- combineSubstitutions s s1 s2
+  s'' <- combineManySubstitutions s ss
+  -- (s1 >< s2) >< recursiveResult
+  combineSubstitutions s s' s''
+
+
 -- | Combines substitutions which may fail if there are conflicting
 -- | substitutions
 combineSubstitutions ::
@@ -538,7 +549,7 @@ combineSubstitutions sp u1 u2 = do
                    --(us, t) <- unifiable v t t' t t'
                    us <- unify s s'
                    case us of
-                     Nothing -> error "Cannot unify"
+                     Nothing -> error $ "Cannot unify: " ++ pretty s ++ " and " ++ pretty s'
                      Just us -> do
                        sUnified <- substitute us s
                        combineSubstitutions sp [(v, sUnified)] us

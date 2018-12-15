@@ -276,12 +276,16 @@ equalTypesRelatedCoeffects s rel allowUniversalSpecialisation (TyVar n) t sp = d
     -- additional equations so performa an additional check if they
     -- are both of Nat kind
     (Just (k1, ForallQ)) -> do
+
       k1 <- inferKindOfType s (TyVar n)
       k2 <- inferKindOfType s t
+
       case k1 `joinKind` k2 of
         Just (KPromote (TyCon (internalName -> "Nat"))) -> do
+
           c1 <- compileNatKindedTypeToCoeffect s (TyVar n)
           c2 <- compileNatKindedTypeToCoeffect s t
+
           addConstraint $ Eq s c1 c2 (TyCon $ mkId "Nat")
           return (True, [(n, SubstT t)])
         x ->

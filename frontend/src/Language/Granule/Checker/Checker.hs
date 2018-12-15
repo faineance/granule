@@ -218,7 +218,7 @@ checkExpr :: (?globals :: Globals )
 
 -- Checking of constants
 
-checkExpr _ [] _ _ ty@(TyCon c) (Val s _ (NumInt n))   | internalName c == "Int" = do
+checkExpr _ [] _ _ ty@(TyCon c) (Val s _ (NumInt n)) | internalName c == "Int" = do
     let elaborated = Val s ty (NumInt n)
     return ([], [], elaborated)
 
@@ -317,23 +317,34 @@ checkExpr defs gam pol True tau (Case s _ guardExpr cases) = do
   -- Check each of the branches
   branchCtxtsAndSubst <-
     forM cases $ \(pat_i, e_i) -> do
+
+      debugM "*** BRANCH " ""
+
       -- Build the binding context for the branch pattern
       newConjunct
       (patternGam, eVars, subst, elaborated_pat_i) <- (pretty guardTy) `trace` ctxtFromTypedPattern s guardTy pat_i
 
+
+      debugM "*** ctxtFromTypedPattern yeilded pattern gam and subst:"
+                     (pretty patternGam <> "\n" <> pretty subst)
       -- Checking the case body
       newConjunct
       -- Specialise the return type and the incoming environment using the
       -- pattern-match-generated type substitution
       tau' <- substitute subst tau
+
+      debugM "*** substituted type" (pretty tau)
       (specialisedGam, unspecialisedGam) <- substCtxt subst gam
 
       let checkGam = patternGam <> specialisedGam <> unspecialisedGam
+
+
+      debugM ("*** time to check; expr = " <> pretty e_i <> " checkGam = " <> (pretty checkGam)) ""
       (localGam, subst', elaborated_i) <- checkExpr defs checkGam pol False tau' e_i
 
       -- We could do this, but it seems redundant.
-      liftIO $ putStrLn $ "localGam = " ++ pretty localGam
-      liftIO $ putStrLn $ "checkGam = " ++ pretty checkGam
+      debugM "*** localGam" (pretty localGam)
+      debugM "*** checkGam" (pretty checkGam)
 
       localGam' <- ctxPlus s localGam guardGam
       ctxtEquals s localGam' checkGam
@@ -358,6 +369,8 @@ checkExpr defs gam pol True tau (Case s _ guardExpr cases) = do
            -- -- invert the substitution and put these things into the context
            debugM "*** unsubstitute" ""
            unsubstLocalGam <- unsubstitute subst localGam
+
+           debugM "*** unsubstitute local gam is" (pretty unsubstLocalGam)
 
            let branchCtxt = unsubstLocalGam `subtractCtxt` patternGam
 
@@ -389,6 +402,7 @@ checkExpr defs gam pol True tau (Case s _ guardExpr cases) = do
 checkExpr defs gam pol topLevel tau e = do
 
   (tau', gam', elaboratedE) <- synthExpr defs gam pol e
+  debugM "*** synthed the type" (pretty tau')
 
   (tyEq, _, subst) <-
     case pol of

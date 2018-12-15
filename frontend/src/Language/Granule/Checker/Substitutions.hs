@@ -132,36 +132,16 @@ instance Substitutable Substitutor where
 
 instance Substitutable Type where
   substitute subst = typeFoldM (baseTypeFold
-                              { tfFunTy = funSubst
-                              , tfTyApp = appSubst
-                              , tfTyVar = varSubst
+                              { tfTyVar = varSubst
                               , tfBox = box
-                              , tfDiamond = dia
-                              , tfTyInfix = infixSubst })
+                              , tfDiamond = dia })
     where
-      funSubst t1 t2 = do
-        t1 <- substitute subst t1
-        t2 <- substitute subst t2
-        mFunTy t1 t2
-
-      appSubst t1 t2 = do
-          t1 <- substitute subst t1
-          t2 <- substitute subst t2
-          mTyApp t1 t2
-
-      infixSubst o t1 t2 = do
-          t1 <- substitute subst t1
-          t2 <- substitute subst t2
-          mTyInfix o t1 t2
-
       box c t = do
         c <- substitute subst c
-        t <- substitute subst t
         mBox c t
 
       dia e t = do
         e <- substitute subst e
-        t <- substitute subst t
         mDiamond e t
 
       varSubst v =

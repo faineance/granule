@@ -228,7 +228,7 @@ checkExpr defs gam pol _ ty@(FunTy sig tau) (Val s _ (Abs _ p t e)) = do
       unless eqT (halt $ GenericError (Just s) $ pretty sig <> " not equal to " <> pretty t')
       return (tau, subst)
 
-  (bindings, _, subst, elaboratedP) <- ctxtFromTypedPattern s sig p
+  (bindings, _, subst, guardCtxt, elaboratedP) <- ctxtFromTypedPattern s sig p
   debugM "binding from lam" $ pretty bindings
 
   pIrrefutable <- isIrrefutable s sig p
@@ -241,7 +241,7 @@ checkExpr defs gam pol _ ty@(FunTy sig tau) (Val s _ (Abs _ p t e)) = do
           subst <- combineSubstitutions s subst1 subst2
 
           -- Locally we should have this property (as we are under a binder)
-          ctxtEquals s bindings (gam' `intersectCtxts` bindings)
+          ctxtEquals s bindings (guardCtxt ++ gam' `intersectCtxts` bindings)
 
           let elaborated = Val s ty (Abs tau elaboratedP t elaboratedE)
           return (gam' `subtractCtxt` bindings, subst, elaborated)
@@ -311,7 +311,7 @@ checkExpr defs gam pol True tau (Case s _ guardExpr cases) = do
     forM cases $ \(pat_i, e_i) -> do
       -- Build the binding context for the branch pattern
       newConjunct
-      (patternGam, eVars, subst, elaborated_pat_i) <- ctxtFromTypedPattern s guardTy pat_i
+      (patternGam, eVars, subst, guardCtxt, elaborated_pat_i) <- ctxtFromTypedPattern s guardTy pat_i
 
       -- Checking the case body
       newConjunct
@@ -352,7 +352,7 @@ checkExpr defs gam pol True tau (Case s _ guardExpr cases) = do
            debugM "branchctxt" (pretty branchCtxt)
 
            -- Locally we should have this property of the binders from the pattern
-           ctxtEquals s patternGam (localGam `intersectCtxts` patternGam)
+           ctxtEquals s patternGam (guardCtxt ++ (localGam `intersectCtxts` patternGam))
 
            return (branchCtxt, subst', (elaborated_pat_i, elaborated_i))
 

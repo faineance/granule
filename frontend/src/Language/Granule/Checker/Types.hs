@@ -72,9 +72,19 @@ equalTypesRelatedCoeffectsAndUnify s rel allowUniversalSpecialisation spec t1 t2
 
    (eq, unif) <- equalTypesRelatedCoeffects s rel allowUniversalSpecialisation t1 t2 spec
    if eq
-     then do
-        t2 <- substitute unif t2
-        return (eq, t2, unif)
+     then
+       -- Specialise the type depending on the unification environment generated
+       -- We chose which one to specialise depending on which one
+       case spec of
+         FstIsSpec-> do
+           t2 <- substitute unif t2
+           return (eq, t2, unif)
+
+        -- Second is spec (or first is result type in a pattern)
+         x | x == SndIsSpec || x == PatternCtxt -> do
+           t1 <- substitute unif t1
+           return (eq, t1, unif)
+
      else return (eq, t1, [])
 
 data SpecIndicator = FstIsSpec | SndIsSpec | PatternCtxt

@@ -31,6 +31,7 @@ import Paths_granule_interpreter (version)
 import Language.Granule.Syntax.Parser
 import Language.Granule.Syntax.Pretty
 import Language.Granule.Utils
+import Language.Granule.Syntax.Def (magic)
 
 
 main :: IO ()
@@ -77,8 +78,11 @@ run input = do
       -- Print to terminal when in debugging mode:
       debugM "AST" (show ast)
       debugM "Pretty-printed AST:" $ pretty ast
+      debugM "Pretty-printed magified AST:" $ pretty $ magic ast
+
+
       -- Check and evaluate
-      checked <- try $ check ast
+      checked <- try $ check (magic ast)
       case checked of
         Left (e :: SomeException) -> do
           printErr $ CheckerError $ show e

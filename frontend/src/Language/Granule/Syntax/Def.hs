@@ -5,6 +5,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Language.Granule.Syntax.Def where
 
@@ -32,6 +33,52 @@ deriving instance Functor (AST v)
 -- | Expression definitions
 data Def v a = Def Span Id (Expr v a) [Pattern a] TypeScheme
   deriving Generic
+
+
+magic :: AST () () -> AST () ()
+magic (AST dd dfs) = AST dd (map foo dfs)
+  where
+    foo :: Def () () -> Def () ()
+    foo (Def sp nm bdy  pats  (Forall spT binders ty)) =
+        (Def sp nm bdy' pats' (Forall spT binders ty'))
+      where
+        pats' = map patToBox pats
+          where
+            patToBox = \case
+              PBox sp () p -> PBox sp () (patToBox p)
+              PConstr sp () nm ps -> PBox sp () $ PConstr sp () nm (map patToBox ps)
+              p -> PBox (getSpan p) () p
+
+        ty' = der ty
+          where
+            der = \case
+              FunTy (Box c t1) t2 -> FunTy (Box c (der t1)) (der t2)
+              FunTy t1 t2 -> FunTy (Box (COne (TyCon $ mkId "Nat")) (der t1)) (der t2)
+              Box c t -> Box c (der t)
+              TyApp t1 (Box c t2) -> TyApp (der t1) (Box c $ der t2)
+              TyApp t1 t2 -> TyApp (der t1) (Box (COne (TyCon $ mkId "Nat")) (der t2))
+              t -> t -- sloppy, I know
+
+        bdy' = promBody $ promArg bdy
+          where
+            promArg = \case
+              App sp _ e1 e2 -> App sp () (promArg e1) (Val nullSpan () $ Promote () (promArg e2))
+              Binop sp _ op e1 e2 -> Binop sp () op (promArg e1) (promArg e2)
+              -- LetDiamond sp _ p ty e1 e2 ->  LetDiamond sp () p ty (promArg e1) (promArg e2)
+              Val sp _ v -> Val sp () $ case v of
+                Promote _ e -> Promote () (promArg e)
+                Pure _ e -> undefined
+                Abs _ p ty e -> Abs () p ty (promArg e)
+                v -> v
+              Case sp _ eScrut branches -> Case sp () (promArg eScrut) (map (\(p,e) -> (p,promArg e)) branches)
+
+            promBody e = case returnTy ty of
+              Box{} -> Val nullSpan () $ Promote () e
+              _ -> e
+              where
+                returnTy = \case
+                  FunTy _ t2 -> returnTy t2
+                  t -> t
 
 deriving instance Functor (Def v)
 deriving instance (Show (Value v a), Show a) => Show (Def v a)

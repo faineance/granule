@@ -40,14 +40,12 @@ data Substitutors =
     SubstT  Type
   | SubstC  Coeffect
   | SubstK  Kind
-  | SubstE  Effect
   deriving (Eq, Show)
 
 instance Pretty Substitutors where
   prettyL l (SubstT t) = "->" <> prettyL l t
   prettyL l (SubstC c) = "->" <> prettyL l c
   prettyL l (SubstK k) = "->" <> prettyL l k
-  prettyL l (SubstE e) = "->" <> prettyL l e
 
 class Substitutable t where
   -- | Rewrite a 't' using a substitution
@@ -75,10 +73,6 @@ instance Substitutable Substitutors where
         k <- substitute subst k
         return $ SubstK k
 
-      SubstE e -> do
-        e <- substitute subst e
-        return $ SubstE e
-
   unify (SubstT t) (SubstT t') = unify t t'
   unify (SubstT t) (SubstC c') = do
     -- We can unify a type with a coeffect, if the type is actually a Nat
@@ -92,7 +86,6 @@ instance Substitutable Substitutors where
   unify (SubstC c') (SubstT t) = unify (SubstT t) (SubstC c')
   unify (SubstC c) (SubstC c') = unify c c'
   unify (SubstK k) (SubstK k') = unify k k'
-  unify (SubstE e) (SubstE e') = unify e e'
   unify _ _ = return Nothing
 
 instance Substitutable Type where
@@ -312,13 +305,6 @@ instance Substitutable Coeffect where
   unify c c' =
     if c == c' then return $ Just [] else return Nothing
 
-instance Substitutable Effect where
-  -- {TODO: Make effects richer}
-  substitute subst = pure
-  unify e e' =
-    if e == e' then return $ Just []
-               else return $ Nothing
-
 instance Substitutable Kind where
 
   substitute subst (KPromote t) = do
@@ -327,6 +313,7 @@ instance Substitutable Kind where
 
   substitute subst KType = return KType
   substitute subst KCoeffect = return KCoeffect
+  substitute subst KEffect = return KEffect
   substitute subst KPredicate = return KPredicate
   substitute subst (KFun c1 c2) = do
     c1 <- substitute subst c1

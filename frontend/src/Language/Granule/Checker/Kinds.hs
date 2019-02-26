@@ -13,12 +13,12 @@ module Language.Granule.Checker.Kinds (kindCheckDef
                     , demoteKindToType) where
 
 import Control.Monad.State.Strict
-
+import Data.Foldable (foldrM)
 
 import Language.Granule.Checker.Monad
 import Language.Granule.Checker.Predicates
 import Language.Granule.Checker.Primitives (tyOps)
-
+import Language.Granule.Checker.Variables
 import Language.Granule.Syntax.Def
 import Language.Granule.Syntax.Identifiers
 import Language.Granule.Syntax.Pretty
@@ -26,6 +26,7 @@ import Language.Granule.Syntax.Span
 import Language.Granule.Syntax.Type
 import Language.Granule.Context
 import Language.Granule.Utils
+
 
 
 promoteTypeToKind :: Type -> Kind
@@ -62,13 +63,13 @@ inferKindOfType s t = do
 
 inferKindOfType' :: (?globals :: Globals) => Span -> Ctxt Kind -> Type -> Checker Kind
 inferKindOfType' s quantifiedVariables t =
-    typeFoldM (TypeFold kFun kCon kBox kDiamond kVar kApp kInt kInfix) t
+    typeFoldM (TypeFold kFun kCon kBox kDiamond kVar kApp kInt kInfix kSet) t
   where
     kFun (KPromote (TyCon c)) (KPromote (TyCon c'))
      | internalName c == internalName c' = return $ kConstr c
 
     kFun KType KType = return KType
-    kFun KType (KPromote (TyCon (internalName -> "Protocol"))) = return $ KPromote (TyCon (mkId "Protocol"))
+    -- kFun KType (KPromote (TyCon (internalName -> "Protocol"))) = return $ KPromote (TyCon (mkId "Protocol")) -- TODO
     kFun KType y = throw KindMismatch{ errLoc = s, kExpected = KType, kActual = y }
     kFun x _     = throw KindMismatch{ errLoc = s, kExpected = KType, kActual = x }
     kCon conId = do
@@ -86,8 +87,12 @@ inferKindOfType' s quantifiedVariables t =
        return KType
     kBox _ x = throw KindMismatch{ errLoc = s, kExpected = KType, kActual = x }
 
-    kDiamond _ KType = return KType
-    kDiamond _ x     = throw KindMismatch{ errLoc = s, kExpected = KType, kActual = x }
+    kDiamond ke kt = do
+      unless (ke == KEffect)
+        (throw KindMismatch{ errLoc = s, kExpected = KEffect, kActual = ke })
+      case kt of
+        KType -> return KType
+        _ -> throw KindMismatch{ errLoc = s, kExpected = KType, kActual = kt }
 
     kVar tyVar =
       case lookup tyVar quantifiedVariables of
@@ -114,6 +119,19 @@ inferKindOfType' s quantifiedVariables t =
       | not (k2act `hasLub` k2exp) = throw
         KindMismatch{ errLoc = s, kExpected = k2exp, kActual = k2act}
       | otherwise                  = pure kret
+
+    kSet :: [Kind] -> Checker Kind
+    kSet [] = KPromote . TyApp (TyCon "Set") $ KEffect
+    kSet (k:ks)
+      = KPromote
+      . TyApp (TyCon "Set")
+      . maybe undefined demoteKindToType
+      <$> foldrM go k ks
+      where
+        go k1 k2 = case joinKind k1 k2 of
+          Just k -> pure k
+          Nothing -> throw
+            KindMismatch{ errLoc = s, kExpected = k1, kActual = k2}
 
 -- | Compute the join of two kinds, if it exists
 joinKind :: Kind -> Kind -> Maybe Kind
@@ -147,7 +165,9 @@ joinCoeffectTypes t1 t2 = case (t1, t2) of
 
   _ -> Nothing
 
--- | Predicate on whether two kinds have a leasy upper bound
+-- | Predicate on whether two kinds have a least upper bound
+-- TODO I'm assuming this is commutative? We should have a property test for
+-- this @buggymcbugfix
 hasLub :: Kind -> Kind -> Bool
 hasLub k1 k2 =
   case joinKind k1 k2 of

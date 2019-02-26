@@ -16,3 +16,6 @@ getCharsUntilEnd h =
             let (h, c) <- hGetChar h;
                 (h, cs) <- getCharsUntilEnd h
             in pure (h, stringAppend (showChar c) cs)
+
+main : String <IO>
+main = readFile "File.gr"

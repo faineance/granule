@@ -1,5 +1,7 @@
 module Language.Granule.Syntax.Identifiers where
 
+import Data.String (IsString(..))
+
 -- | Internal representation of entinames (variables)
 -- which pairs their source name string with an internal name
 -- which is useually freshly generate. Error messages should
@@ -7,6 +9,9 @@ module Language.Granule.Syntax.Identifiers where
 -- generation should use 'internalName'
 data Id = Id { sourceName :: String, internalName :: String }
   deriving (Eq, Ord)
+
+instance IsString Id where
+  fromString = mkId
 
 instance Show Id where
   show (Id s i) = "(Id " <> show s <> " " <> show i <> ")"

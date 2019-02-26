@@ -272,7 +272,7 @@ Type :: { Type }
   | TyAtom '[' Coeffect ']'   { Box $3 $1 }
   | TyAtom '[' ']'            { Box (CInterval (CZero extendedNat) infinity) $1 }
 
-  | TyAtom '<' Effect '>'     { Diamond $3 $1 }
+  | TyAtom '<' Type '>'       { Diamond $3 $1 }
 
 TyApp :: { Type }
  : TyJuxt TyAtom              { TyApp $1 $2 }
@@ -312,7 +312,7 @@ Coeffect :: { Coeffect }
   : INT                         { let TokenInt _ x = $1 in CNat x }
   | '∞'                         { infinity }
   | FLOAT                       { let TokenFloat _ x = $1 in CFloat $ myReadFloat x }
-  | CONSTR                      { case (constrString $1) of
+  | CONSTR                      { case constrString $1 of
                                     "Public" -> Level publicRepresentation
                                     "Private" -> Level privateRepresentation
                                     "Inf" -> infinity
@@ -333,16 +333,23 @@ Set :: { [(String, Type)] }
   : VAR ':' Type ',' Set      { (symString $1, $3) : $5 }
   | VAR ':' Type              { [(symString $1, $3)] }
 
-Effect :: { Effect }
-  : Effs                 { $1 }
-  | {-empty-}            { [] }
+-- Effect :: { Effect }
+--   : '{' Effs '}'              { $2 }
+--   | '{' '}'                   { mempty }
 
-Effs :: { [String] }
-  : Eff ',' Effs              { $1 : $3 }
-  | Eff                       { [$1] }
+-- Effs :: { Effect }
+--   : Eff ',' Effs              { Set.insert $1 $3 }
+--   | Eff                       { Set.singleton $1 }
 
-Eff :: { String }
-  : CONSTR                    { constrString $1 }
+-- Eff :: { Eff }
+--   : CONSTR                    { case readMaybe @Eff (constrString $1) of
+--                                   Just e -> e
+--                                   Nothing ->
+--                                     error
+--                                       $ "Unknown effect `" <> constrString $1
+--                                       <> "` expecting one of "
+--                                       <> show [minBound @Eff .. maxBound]
+--                               }
 
 Expr :: { Expr () () }
   : let LetBind MultiLet

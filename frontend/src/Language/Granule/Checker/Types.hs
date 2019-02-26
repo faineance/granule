@@ -114,38 +114,43 @@ equalTypesRelatedCoeffects _ _ _ (TyCon con1) (TyCon con2) _ =
 
 -- THE FOLLOWING TWO CASES ARE TEMPORARY UNTIL WE MAKE 'Effect' RICHER
 
--- Over approximation by 'IO' "monad"
-equalTypesRelatedCoeffects s rel uS (Diamond ef t1) (Diamond ["IO"] t2) sp
-    = equalTypesRelatedCoeffects s rel uS t1 t2 sp
+equalTypesRelatedCoeffects s rel uS (Diamond e1 t1) (Diamond e2 t2) sp = do
+    (eB, []) <- equalTypesRelatedCoeffects s rel uS e1 e2 sp
+    (tB, us) <- equalTypesRelatedCoeffects s rel uS t1 t2 sp
+    return (eB && tB, us)
 
--- Under approximation by 'IO' "monad"
-equalTypesRelatedCoeffects s rel uS (Diamond ["IO"] t1) (Diamond ef t2) sp
-    = equalTypesRelatedCoeffects s rel uS t1 t2 sp
+-- -- Over approximation by 'IO' "monad"
+-- equalTypesRelatedCoeffects s rel uS (Diamond ef t1) (Diamond ["IO"] t2) sp
+--     = equalTypesRelatedCoeffects s rel uS t1 t2 sp
 
--- Over approximation by 'Session' "monad"
-equalTypesRelatedCoeffects s rel uS (Diamond ef t1) (Diamond ["Session"] t2) sp
-    | "Com" `elem` ef || null ef
-      = equalTypesRelatedCoeffects s rel uS t1 t2 sp
+-- -- Under approximation by 'IO' "monad"
+-- equalTypesRelatedCoeffects s rel uS (Diamond ["IO"] t1) (Diamond ef t2) sp
+--     = equalTypesRelatedCoeffects s rel uS t1 t2 sp
 
--- Under approximation by 'Session' "monad"
-equalTypesRelatedCoeffects s rel uS (Diamond ["Session"] t1) (Diamond ef t2) sp
-    | "Com" `elem` ef || null ef
-      = equalTypesRelatedCoeffects s rel uS t1 t2 sp
+-- -- Over approximation by 'Session' "monad"
+-- equalTypesRelatedCoeffects s rel uS (Diamond ef t1) (Diamond ["Session"] t2) sp
+--     | "Com" `elem` ef || null ef
+--       = equalTypesRelatedCoeffects s rel uS t1 t2 sp
 
-equalTypesRelatedCoeffects s rel uS (Diamond ef1 t1) (Diamond ef2 t2) sp = do
-  (eq, unif) <- equalTypesRelatedCoeffects s rel uS t1 t2 sp
-  if ef1 == ef2
-    then return (eq, unif)
-    else
-      -- Effect approximation
-      if (ef1 `isPrefixOf` ef2)
-      then return (eq, unif)
-      else
-        -- Communication effect analysis is idempotent
-        if (nub ef1 == ["Com"] && nub ef2 == ["Com"])
-        then return (eq, unif)
-        else
-          throw EffectMismatch{ errLoc = s, effExpected = ef1, effActual = ef2 }
+-- -- Under approximation by 'Session' "monad"
+-- equalTypesRelatedCoeffects s rel uS (Diamond ["Session"] t1) (Diamond ef t2) sp
+--     | "Com" `elem` ef || null ef
+--       = equalTypesRelatedCoeffects s rel uS t1 t2 sp
+
+-- equalTypesRelatedCoeffects s rel uS (Diamond ef1 t1) (Diamond ef2 t2) sp = do
+--   (eq, unif) <- equalTypesRelatedCoeffects s rel uS t1 t2 sp
+--   if ef1 == ef2
+--     then return (eq, unif)
+--     else
+--       -- Effect approximation
+--       if (ef1 `isPrefixOf` ef2)
+--       then return (eq, unif)
+--       else
+--         -- Communication effect analysis is idempotent
+--         if (nub ef1 == ["Com"] && nub ef2 == ["Com"])
+--         then return (eq, unif)
+--         else
+--           throw EffectMismatch{ errLoc = s, effExpected = ef1, effActual = ef2 }
 
 equalTypesRelatedCoeffects s rel uS x@(Box c t) y@(Box c' t') sp = do
   -- Debugging messages
@@ -327,9 +332,9 @@ equalTypesRelatedCoeffects s rel uS (TyApp t1 t2) (TyApp t1' t2') sp = do
   return (one && two, unifiers)
 
 
-equalTypesRelatedCoeffects s rel uS t1 t2 t = do
-  debugM "equalTypesRelatedCoeffects" $ "called on: " <> show t1 <> "\nand:\n" <> show t2
-  equalOtherKindedTypesGeneric s t1 t2
+-- equalTypesRelatedCoeffects s rel uS t1 t2 t = do
+--   debugM "equalTypesRelatedCoeffects" $ "called on: " <> show t1 <> "\nand:\n" <> show t2
+--   equalOtherKindedTypesGeneric s t1 t2
 
 {- | Equality on other types (e.g. Nat and Session members) -}
 equalOtherKindedTypesGeneric :: (?globals :: Globals)
@@ -410,7 +415,7 @@ isDualSession sp _ _ t1 t2 _ = throw
   SessionDualityError{ errLoc = sp, errTy1 = t1, errTy2 = t2 }
 
 
--- Essentially equality on types but join on any coeffects
+-- Essentially equality on types but join on any (co)effects
 joinTypes :: (?globals :: Globals) => Span -> Type -> Type -> Checker Type
 joinTypes s (FunTy t1 t2) (FunTy t1' t2') = do
   t1j <- joinTypes s t1' t1 -- contravariance
@@ -419,8 +424,10 @@ joinTypes s (FunTy t1 t2) (FunTy t1' t2') = do
 
 joinTypes _ (TyCon t) (TyCon t') | t == t' = return (TyCon t)
 
-joinTypes s (Diamond ef t) (Diamond ef' t') = do
-  tj <- joinTypes s t t'
+joinTypes s (Diamond e1 t1) (Diamond e2 t2) = do
+  ej <- joinTypes s e1 e2
+  tj <- joinTypes s t1 t2
+
   if ef `isPrefixOf` ef'
     then return (Diamond ef' tj)
     else
@@ -466,6 +473,11 @@ joinTypes s (TyApp t1 t2) (TyApp t1' t2') = do
   t1'' <- joinTypes s t1 t1'
   t2'' <- joinTypes s t2 t2'
   return (TyApp t1'' t2'')
+
+joinTypes s t1@(TySet ts1) t2@(TySet ts2) = do
+  inferKindOfType
+    | all (`elem` ts1) ts2 -> pure (TySet ts2)
+    | all (`elem` ts2) ts1 -> pure (TySet ts1)
 
 joinTypes s t1 t2 = throw
   NoUpperBoundError{ errLoc = s, errTy1 = t1, errTy2 = t2 }

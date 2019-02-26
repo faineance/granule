@@ -12,6 +12,7 @@
 module Language.Granule.Syntax.Pretty where
 
 import Data.List
+
 import Language.Granule.Syntax.Expr
 import Language.Granule.Syntax.Type
 import Language.Granule.Syntax.Pattern
@@ -61,10 +62,6 @@ instance Pretty () where
 instance {-# OVERLAPPABLE #-} Pretty a => Pretty [a] where
    prettyL l xs = "[" <> intercalate "," (map (prettyL l) xs) <> "]"
 
--- Core prettyL l printers
-
-instance {-# OVERLAPS #-} Pretty Effect where
-   prettyL l es = "[" <> intercalate "," es <> "]"
 
 instance Pretty Coeffect where
     prettyL l (CNat n) = show n
@@ -104,6 +101,7 @@ instance Pretty Coeffect where
 instance Pretty Kind where
     prettyL l KType          = "Type"
     prettyL l KCoeffect      = "Coeffect"
+    prettyL _ KEffect        = "Effect"
     prettyL l KPredicate     = "Predicate"
     prettyL l (KFun k1 k2)   = prettyL l k1 <> " -> " <> prettyL l k2
     prettyL l (KVar v)       = prettyL l v
@@ -120,9 +118,10 @@ instance Pretty TypeScheme where
 
 instance Pretty Type where
     -- Atoms
-    prettyL l (TyCon s)      =  prettyL 0 s
-    prettyL l (TyVar v)      = prettyL 0 v
-    prettyL l (TyInt n)      = show n
+    prettyL _ (TyCon s)      = pretty s
+    prettyL _ (TyVar v)      = pretty v
+    prettyL _ (TyInt n)      = show n
+    prettyL _ (TySet ts)     = "{" <> (intercalate "," . map pretty) ts <> "}"
 
     -- Non atoms
     prettyL l (FunTy t1 t2)  =
@@ -133,12 +132,8 @@ instance Pretty Type where
     prettyL l (Box c t)      =
        parens l (prettyL (l+1) t <> " [" <> prettyL l c <> "]")
 
-    prettyL l (Diamond e t) | e == ["Com"] =
-      parens l ("Session " <> prettyL (l+1) t)
-
     prettyL l (Diamond e t)  =
-       parens l (prettyL (l+1) t
-       <> " <" <> intercalate "," (map (prettyL l) e) <> ">")
+      parens l (prettyL (l+1) t <> " <" <> prettyL l e <> ">")
 
     prettyL l (TyApp (TyApp (TyCon x) t1) t2) | sourceName x == "," =
       parens l ("(" <> prettyL l t1 <> ", " <> prettyL l t2 <> ")")

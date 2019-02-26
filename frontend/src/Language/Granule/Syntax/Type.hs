@@ -8,13 +8,17 @@
 
 module Language.Granule.Syntax.Type where
 
+-- import Data.Set (Set)
+-- import qualified Data.Set as Set
+-- import Data.Foldable (toList)
+import Data.Functor.Identity (runIdentity)
+import GHC.Generics (Generic)
+
 import Language.Granule.Syntax.FirstParameter
 import Language.Granule.Syntax.Helpers
 import Language.Granule.Syntax.Identifiers
 import Language.Granule.Syntax.Span
 
-import GHC.Generics (Generic)
-import Data.Functor.Identity (runIdentity)
 
 -- | Represent types with a universal quantification at the start
 data TypeScheme =
@@ -49,16 +53,20 @@ Example: `List n Int` in Granule
 data Type = FunTy Type Type           -- ^ Function type
           | TyCon Id                  -- ^ Type constructor
           | Box Coeffect Type         -- ^ Coeffect type
-          | Diamond Effect Type       -- ^ Effect type
+          | Diamond
+            { tyDiamondEff :: Type, tyDiamondArg :: Type }
+            -- ^ Effect type
           | TyVar Id                  -- ^ Type variable
           | TyApp Type Type           -- ^ Type application
           | TyInt Int                 -- ^ Type-level Int
           | TyInfix TypeOperator Type Type  -- ^ Infix type operator
+          | TySet [Type]              -- ^ Type-level set
     deriving (Eq, Ord, Show)
 
 -- | Kinds
 data Kind = KType
           | KCoeffect
+          | KEffect
           | KPredicate
           | KFun Kind Kind
           | KVar Id              -- Kind poly variable
@@ -75,6 +83,7 @@ protocol = kConstr $ mkId "Protocol"
 instance Monad m => Freshenable m Kind where
   freshen KType = return KType
   freshen KCoeffect = return KCoeffect
+  freshen KEffect = return KEffect
   freshen KPredicate = return KPredicate
   freshen (KFun k1 k2) = do
     k1 <- freshen k1
@@ -147,9 +156,12 @@ isProduct _ = Nothing
 
 
 
--- | Represents effect grades
--- TODO: Make richer
-type Effect = [String]
+-- -- | Represents effect grades
+-- -- TODO: Make richer
+-- -- TODO: shouldn't this be part of `Type`?
+
+-- data Eff = Read | Write | Open | Close | Conc
+--   deriving (Eq, Ord, Show, Enum, Bounded, Read)
 
 ----------------------------------------------------------------------
 -- Helpers
@@ -200,7 +212,7 @@ mTyCon :: Monad m => Id -> m Type
 mTyCon       = return . TyCon
 mBox :: Monad m => Coeffect -> Type -> m Type
 mBox c y     = return (Box c y)
-mDiamond :: Monad m => Effect -> Type -> m Type
+mDiamond :: Monad m => Type -> Type -> m Type
 mDiamond e y = return (Diamond e y)
 mTyVar :: Monad m => Id -> m Type
 mTyVar       = return . TyVar
@@ -210,22 +222,34 @@ mTyInt :: Monad m => Int -> m Type
 mTyInt       = return . TyInt
 mTyInfix :: Monad m => TypeOperator -> Type -> Type -> m Type
 mTyInfix op x y  = return (TyInfix op x y)
+mTySet :: Monad m => [Type] -> m Type
+mTySet tys = return (TySet tys)
 
 -- Monadic algebra for types
 data TypeFold m a = TypeFold
   { tfFunTy   :: a -> a        -> m a
   , tfTyCon   :: Id            -> m a
   , tfBox     :: Coeffect -> a -> m a
-  , tfDiamond :: Effect -> a   -> m a
+  , tfDiamond :: a -> a        -> m a
   , tfTyVar   :: Id            -> m a
   , tfTyApp   :: a -> a        -> m a
   , tfTyInt   :: Int           -> m a
-  , tfTyInfix :: TypeOperator  -> a -> a -> m a }
+  , tfTyInfix :: TypeOperator  -> a -> a -> m a
+  , tfTySet   :: [a]           -> m a
+  }
 
 -- Base monadic algebra
 baseTypeFold :: Monad m => TypeFold m Type
-baseTypeFold =
-  TypeFold mFunTy mTyCon mBox mDiamond mTyVar mTyApp mTyInt mTyInfix
+baseTypeFold = TypeFold
+  mFunTy
+  mTyCon
+  mBox
+  mDiamond
+  mTyVar
+  mTyApp
+  mTyInt
+  mTyInfix
+  mTySet
 
 -- | Monadic fold on a `Type` value
 typeFoldM :: Monad m => TypeFold m a -> Type -> m a
@@ -239,9 +263,10 @@ typeFoldM algebra = go
    go (Box c t) = do
      t' <- go t
      (tfBox algebra) c t'
-   go (Diamond c t) = do
-     t' <- go t
-     (tfDiamond algebra) c t'
+   go (Diamond tyEff ty) = do
+     tyEff <- go tyEff
+     ty <- go ty
+     (tfDiamond algebra) tyEff ty
    go (TyVar v) = (tfTyVar algebra) v
    go (TyApp t1 t2) = do
      t1' <- go t1
@@ -252,7 +277,9 @@ typeFoldM algebra = go
      t1' <- go t1
      t2' <- go t2
      (tfTyInfix algebra) op t1' t2'
-
+   go (TySet tys) = do
+     tys <- traverse go tys
+     (tfTySet algebra) tys
 instance FirstParameter TypeScheme Span
 
 freeAtomsVars :: Type -> [Id]
@@ -269,11 +296,12 @@ instance Term Type where
     { tfFunTy   = \x y -> return $ x <> y
     , tfTyCon   = \_ -> return [] -- or: const (return [])
     , tfBox     = \c t -> return $ freeVars c <> t
-    , tfDiamond = \_ x -> return x
+    , tfDiamond = \x y -> return $ x <> y
     , tfTyVar   = \v -> return [v] -- or: return . return
     , tfTyApp   = \x y -> return $ x <> y
     , tfTyInt   = \_ -> return []
     , tfTyInfix = \_ y z -> return $ y <> z
+    , tfTySet   = return . concat
     }
 
 instance Term Coeffect where

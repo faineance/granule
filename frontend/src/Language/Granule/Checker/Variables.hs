@@ -31,13 +31,13 @@ freshIdentifierBase s = do
       put checkerState { uniqueVarIdCounterMap = vmap' }
       return $ s' <> "." <> show n
 
--- | Helper for creating a few (existential) coeffect variable of a particular
+-- | Helper for creating a new (existential) coeffect variable of a particular
 --   coeffect type.
 freshTyVarInContext :: Id -> Kind -> Checker Id
 freshTyVarInContext cvar k = do
     freshTyVarInContextWithBinding cvar k InstanceQ
 
--- | Helper for creating a few (existential) coeffect variable of a particular
+-- | Helper for creating a new (existential) coeffect variable of a particular
 --   coeffect type.
 freshTyVarInContextWithBinding :: Id -> Kind -> Quantifier -> Checker Id
 freshTyVarInContextWithBinding var k q = do

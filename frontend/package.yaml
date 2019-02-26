@@ -25,7 +25,8 @@ default-extensions:
 - ImplicitParams
 - ViewPatterns
 - LambdaCase
-
+- TypeApplications
+- OverloadedStrings
 
 library:
   source-dirs: src

@@ -43,7 +43,7 @@ main = do
   (globPatterns,globals) <- customExecParser (prefs disambiguate) parseArgs
   let ?globals = globals in do
     if null globPatterns then do
-      let ?globals = globals { sourceFilePath = "stdin" } in do
+      let ?globals = globals { globalsSourceFilePath =Just $  "stdin" } in do
         printInfo "Reading from stdin: confirm input with `enter+ctrl-d` or exit with `ctrl-c`"
         debugM "Globals" (show globals)
         exitWith =<< run =<< getContents
@@ -54,7 +54,7 @@ main = do
         filePaths <- glob p
         case filePaths of
           [] -> do
-            printErr $ GenericError $ "The glob pattern `" <> p <> "` did not match any files."
+            printError $ GenericError $ "The glob pattern `" <> p <> "` did not match any files."
             return [(ExitFailure 1)]
           _ -> forM filePaths $ \p -> do
             let fileName =
@@ -62,7 +62,7 @@ main = do
                    Just f  -> tail f
                    Nothing -> p
 
-            let ?globals = globals { sourceFilePath = fileName }
+            let ?globals = globals { globalsSourceFilePath = Just fileName }
             printInfo $ "\nChecking " <> fileName <> "..."
             run =<< readFile p
       if all (== ExitSuccess) (concat results) then exitSuccess else exitFailure
@@ -75,7 +75,7 @@ run input = do
   result <- try $ parseAndDoImportsAndFreshenDefs input
   case result of
     Left (e :: SomeException) -> do
-      printErr $ ParseError $ show e
+      printError $ ParseError $ show e
       return (ExitFailure 1)
 
     Right ast -> do
@@ -86,29 +86,31 @@ run input = do
       checked <- try $ check ast
       case checked of
         Left (e :: SomeException) -> do
-          printErr $ CheckerError $ show e
+          printError $ CheckerError $ show e
           return (ExitFailure 1)
-        Right Failed -> do
-          printInfo "Failed" -- specific errors have already been printed
-          return (ExitFailure 1)
-        Right Ok -> do
-          if noEval ?globals then do
-            printInfo $ green "Ok"
-            return ExitSuccess
-          else do
-            printInfo $ green "Ok, evaluating..."
-            let result = codegen ast
-            case result of
-              Left (e :: SomeException) -> do
-                printErr $ EvalError $ show e
-                return (ExitFailure 1)
-              Right irModuleAst -> do
-                printInfo "Compiled Successfully"
-                printInfo (unpack (ppllvm irModuleAst))
-                withHostTargetMachine $ \machine ->
-                    withContext $ \context -> do
-                        withModuleFromAST context irModuleAst (writeObjectToFile machine (File "out.o"))
-                return ExitSuccess
+        Right s -> case s of
+          Left err -> do
+            printInfo "Failed" -- specific errors have already been printed
+            return (ExitFailure 1)
+          Right a -> do
+            --if globalsNoEval ?globals then do
+            if False then do
+              printInfo $ green "Ok"
+              return ExitSuccess
+            else do
+              printInfo $ green "Ok, evaluating..."
+              let result = codegen ast
+              case result of
+                Left (e :: SomeException) -> do
+                  printError $ EvalError $ show e
+                  return (ExitFailure 1)
+                Right irModuleAst -> do
+                  printInfo "Compiled Successfully"
+                  printInfo (unpack (ppllvm irModuleAst))
+                  withHostTargetMachine $ \machine ->
+                      withContext $ \context -> do
+                          withModuleFromAST context irModuleAst (writeObjectToFile machine (File "out.o"))
+                  return ExitSuccess
 
 
 parseArgs :: ParserInfo ([FilePath],Globals)
@@ -131,7 +133,8 @@ parseArgs = info (go <**> helper) $ briefDesc
           switch $ long "no-eval" <> short 't' <> help "Don't evaluate, only (t)ype-check"
         timestamp <-
           switch $ long "timestamp" <> help "Print timestamp in info and error messages"
-        pure (files, defaultGlobals { debugging, noColors, noEval, suppressInfos, suppressErrors, timestamp })
+        --pure (files, defaultGlobals { debugging, noColors, noEval, suppressInfos, suppressErrors, timestamp })
+        pure (files, mempty)
 
 data RuntimeError
   = ParseError String

@@ -21,8 +21,8 @@ library:
   - Language.Granule.Codegen.Codegen
   dependencies:
   - granule-frontend
-  - llvm-hs-pure >= 6.0
-  - llvm-hs >= 6.0
+  - llvm-hs-pure
+  - llvm-hs
 
 executables:
   grc:
@@ -36,8 +36,8 @@ executables:
     - granule-compiler
     - optparse-applicative
     - text
-    - llvm-hs-pure >= 6.0
-    - llvm-hs >= 6.0
+    - llvm-hs-pure
+    - llvm-hs
     - llvm-hs-pretty
 
 tests:
